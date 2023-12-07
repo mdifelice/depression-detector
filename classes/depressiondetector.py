@@ -1,5 +1,7 @@
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from zipfile import ZipFile
+import kaggle
+import os
 import pandas as pd
 
 class DepressionDetector:
@@ -19,19 +21,19 @@ class DepressionDetector:
 		numerical_columns = []
 
 		for column_name in __datasets['original'].columns:
-		  column = __datasets['original'][ column_name ].dropna()
+			column = __datasets['original'][ column_name ].dropna()
 
-		  if pd.api.types.is_numeric_dtype( column.dtype ):
-			numerical_columns.append( column_name )
-		  elif column.dtype == 'object':
-			uniques = column.unique()
+			if pd.api.types.is_numeric_dtype( column.dtype ):
+				numerical_columns.append( column_name )
+			elif column.dtype == 'object':
+				uniques = column.unique()
 
-			uniques.sort()
+				uniques.sort()
 
-			if len( uniques ) == 2 and uniques[0] == False and uniques[1] == True:
-				__datasets['original'][ column_name ] = column.astype( int )
-			else:
-				categorical_columns.append( column_name )
+				if len( uniques ) == 2 and uniques[0] == False and uniques[1] == True:
+					__datasets['original'][ column_name ] = column.astype( int )
+				else:
+					categorical_columns.append( column_name )
 
 		standard_scaler = StandardScaler()
 		min_max_scaler = MinMaxScaler()
@@ -69,9 +71,9 @@ class DepressionDetector:
 
 	# Other: charts, comparisons, predict
 
-	def load_dataset_from_kaggle( dataset_id, dataset_file ):
+	def load_dataset_from_kaggle( self, dataset_id, dataset_file, base_folder ):
 		basename = dataset_id.split( '/' )[-1]
-		folder = '/content/kaggle/' + basename
+		folder = base_folder + '/' + basename
 		zip = folder + '/' + basename + '.zip'
 
 		kaggle.api.dataset_download_files( dataset_id, folder )
@@ -81,7 +83,7 @@ class DepressionDetector:
 
 		os.remove( zip )
 
-		extension = dataset_main_file.split( '.' )[-1]
+		extension = dataset_file.split( '.' )[-1]
 
 		if 'csv' == extension:
 			callback = pd.read_csv
@@ -91,7 +93,7 @@ class DepressionDetector:
 			callback = None
 
 		if callback:
-			dataset = callback( folder + '/' + dataset_main_file )
+			dataset = callback( folder + '/' + dataset_file )
 		else:
 			dataset = None
 
