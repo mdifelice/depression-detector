@@ -8,4 +8,4 @@ dp = DepressionDetector()
 
 dataset = dp.load_dataset_from_kaggle( "shahzadahmad0402/depression-and-anxiety-data", "depression_anxiety_data.csv", "./datasets" )
 
-dp.train( dataset )
+dp.train( dataset, 'depression_diagnosis' )
