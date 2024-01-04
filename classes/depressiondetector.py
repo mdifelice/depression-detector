@@ -10,7 +10,8 @@ import re
 
 class DepressionDetector:
 	def __init__( self ):
-		pass
+		self.random_seed = 123
+		self.validation_ratio = 0.2
 
 	def train( self, dataset, target ):
 		self.__datasets = {}
@@ -123,11 +124,22 @@ class DepressionDetector:
 
 						self.__datasets[ dataset_id + '_reduced_' + name ] = self.__datasets[ dataset_id ].loc[:, np.append( features, [ target ] ) ]
 
-		for dataset_id in self.__datasets:
-			print( dataset_id + ': ' + str( len( self.__datasets[ dataset_id ].columns ) ) )
 		# Save tmp
 
 		# Separate validation dataset
+		validation_datasets = {};
+		train_test_datasets = {};
+
+		for dataset_id in self.__datasets:
+			dataset = self.__datasets[ dataset_id ].sample( frac = 1, random_state = self.random_seed )
+
+			validation_limit = int( dataset.shape[0] * ( 1 - self.validation_ratio ) )
+
+			train_test_dataset = dataset[ 0:validation_limit ]
+			validation_dataset = dataset[ validation_limit: ]
+
+			train_test_datasets[ dataset_id ] = train_test_dataset
+			validation_datasets[ dataset_id ] = validation_dataset
 
 		# Train datasets
 
