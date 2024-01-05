@@ -12,8 +12,9 @@ class DepressionDetector:
 	def __init__( self ):
 		self.random_seed = 123
 		self.validation_ratio = 0.2
+		self.train_sizes = [ 0.7, 0.8 ]
 
-	def train( self, dataset, target ):
+	def train( self, dataset, target, tune = False ):
 		self.__datasets = {}
 
 		# Read tmp?
@@ -127,6 +128,8 @@ class DepressionDetector:
 		# Save tmp
 
 		# Separate validation dataset
+		self.__debug( 'Splitting train/test and validation data...' )
+
 		validation_datasets = {};
 		train_test_datasets = {};
 
@@ -142,6 +145,40 @@ class DepressionDetector:
 			validation_datasets[ dataset_id ] = validation_dataset
 
 		# Train datasets
+		self.__debug( 'Starting trainings...' )
+
+		metrics = {} # Load tmp data
+		models = {} # Load tmp data
+		index = 0
+
+		for dataset_id in train_test_datasets:
+			self.__debug( 'Trainings for dataset ' + dataset_id + '...' )
+
+			if not dataset_id in metrics:
+				metrics[ dataset_id ] = {}
+
+			if not dataset_id in models:
+				models[ dataset_id ] = {}
+
+			for train_size in self.train_sizes:
+				train_size_string = str( train_size )
+
+				index += 1
+				
+				self.__debug( 'Using train size ' + train_size_string + '...' )
+
+				if not train_size_string in metrics[ dataset_id ]:
+					pass
+					# custom train
+					# save models
+
+		# Tune models
+		if tune:
+			self.__debug( 'Tuning models...' )
+
+
+
+
 
 		# Tune models
 
