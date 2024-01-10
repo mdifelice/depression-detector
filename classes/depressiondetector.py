@@ -1,25 +1,14 @@
-from datetime import datetime
-from sklearn.feature_selection import SelectKBest, chi2, f_classif
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from zipfile import ZipFile
-import kaggle
-import numpy as np
-import os
-import pandas as pd
-import re
-
 class DepressionDetector:
 	def __init__( self, random_seed = 1, validation_ratio = 0.2, train_sizes = [ 0.7, 0.8 ] ):
+# todo training variables for each dataset
 		self.__random_seed = random_seed
 		self.__validation_ratio = validation_ratio
 		self.__train_sizes = train_sizes
 		self.__datasets = []
 
 	def train( self, tune = False ):
-		self.__prepare_datasets()
-
 		# Separate validation dataset
-		self.__debug( 'Splitting train/test and validation data...' )
+		self.__debug( "Splitting train/test and validation data..." )
 
 		validation_datasets = {};
 		train_test_datasets = {};
@@ -36,7 +25,7 @@ class DepressionDetector:
 			validation_datasets[ dataset_id ] = validation_dataset
 
 		# Train datasets
-		self.__debug( 'Starting trainings...' )
+		self.__debug( "Starting trainings..." )
 
 		metrics = {} # Load tmp data
 		models = {} # Load tmp data
@@ -60,7 +49,7 @@ class DepressionDetector:
 # Support Vector Machines
 # Neural Networks ?
 		for dataset_id in train_test_datasets:
-			self.__debug( 'Trainings for dataset ' + dataset_id + '...' )
+			self.__debug( "Trainings for dataset " + dataset_id + "..." )
 
 			if not dataset_id in metrics:
 				metrics[ dataset_id ] = {}
@@ -73,7 +62,7 @@ class DepressionDetector:
 
 				index += 1
 				
-				self.__debug( 'Using train size ' + train_size_string + '...' )
+				self.__debug( "Using train size " + train_size_string + "..." )
 
 				if not train_size_string in metrics[ dataset_id ]:
 					pass
@@ -82,10 +71,10 @@ class DepressionDetector:
 
 		# Tune models
 		if tune:
-			self.__debug( 'Tuning models...' )
+			self.__debug( "Tuning models..." )
 	# Other: charts, comparisons, predict
 
-	def add_training_dataset( self, dataset ):
+	def add_training_dataset( self, dataset, **kwargs ):
 		self.__datasets.append( dataset )
 
 	# to-do
