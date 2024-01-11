@@ -1,6 +1,7 @@
+from .util import debug
+
 class DepressionDetector:
 	def __init__( self, random_seed = 1, validation_ratio = 0.2, train_sizes = [ 0.7, 0.8 ] ):
-# todo training variables for each dataset
 		self.__random_seed = random_seed
 		self.__validation_ratio = validation_ratio
 		self.__train_sizes = train_sizes
@@ -8,12 +9,12 @@ class DepressionDetector:
 
 	def train( self, tune = False ):
 		# Separate validation dataset
-		self.__debug( "Splitting train/test and validation data..." )
+		debug( "Splitting train/test and validation data..." )
 
 		validation_datasets = {};
 		train_test_datasets = {};
 
-		for dataset_id in self.__datasets:
+		for dataset in self.__datasets:
 			dataset = self.__datasets[ dataset_id ].sample( frac = 1, random_state = self.__random_seed )
 
 			validation_limit = int( dataset.shape[0] * ( 1 - self.__validation_ratio ) )
@@ -25,7 +26,7 @@ class DepressionDetector:
 			validation_datasets[ dataset_id ] = validation_dataset
 
 		# Train datasets
-		self.__debug( "Starting trainings..." )
+		debug( "Starting trainings..." )
 
 		metrics = {} # Load tmp data
 		models = {} # Load tmp data
@@ -49,7 +50,7 @@ class DepressionDetector:
 # Support Vector Machines
 # Neural Networks ?
 		for dataset_id in train_test_datasets:
-			self.__debug( "Trainings for dataset " + dataset_id + "..." )
+			debug( "Trainings for dataset " + dataset_id + "..." )
 
 			if not dataset_id in metrics:
 				metrics[ dataset_id ] = {}
@@ -61,8 +62,8 @@ class DepressionDetector:
 				train_size_string = str( train_size )
 
 				index += 1
-				
-				self.__debug( "Using train size " + train_size_string + "..." )
+
+				debug( "Using train size " + train_size_string + "..." )
 
 				if not train_size_string in metrics[ dataset_id ]:
 					pass
@@ -71,11 +72,11 @@ class DepressionDetector:
 
 		# Tune models
 		if tune:
-			self.__debug( "Tuning models..." )
+			debug( "Tuning models..." )
 	# Other: charts, comparisons, predict
 
 	def add_training_dataset( self, dataset, **kwargs ):
-		self.__datasets.append( dataset )
+		self.__datasets.append( dataset, **kwargs )
 
 	# to-do
 	def predict( self ):
