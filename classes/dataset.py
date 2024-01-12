@@ -46,6 +46,9 @@ class Dataset:
 		self.versions = {}
 		self.versions["original"] = data
 
+	def train( tune = False ):
+		pass
+
 	def __prepare_data( self ):
 		categorical_columns = []
 		numerical_columns = []

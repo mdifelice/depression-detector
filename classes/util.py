@@ -7,4 +7,4 @@ def debug( message ):
 	print( now.strftime( "[%Y-%m-%d %H:%M:%S] " ) + message )
 
 def get_data_folder( subfolder ):
-	return os.path.dirname( __file__ ) + "/data/" + subfolder + "/"
+	return os.path.dirname( __file__ ) + "/../data/" + subfolder + "/"

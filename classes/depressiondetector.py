@@ -1,3 +1,4 @@
+from .dataset import Dataset
 from .util import debug
 
 class DepressionDetector:
@@ -5,7 +6,7 @@ class DepressionDetector:
 		self.__random_seed = random_seed
 		self.__validation_ratio = validation_ratio
 		self.__train_sizes = train_sizes
-		self.__datasets = []
+		self.__datasets = {}
 
 	def train( self, tune = False ):
 		# Separate validation dataset
@@ -75,8 +76,10 @@ class DepressionDetector:
 			debug( "Tuning models..." )
 	# Other: charts, comparisons, predict
 
-	def add_training_dataset( self, dataset, **kwargs ):
-		self.__datasets.append( dataset, **kwargs )
+	def add_dataset( self, url, target_column, **kwargs ):
+		dataset = Dataset( url, target_column, **kwargs )
+
+		self.__datasets[ url ] = dataset
 
 	# to-do
 	def predict( self ):
