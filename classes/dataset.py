@@ -9,8 +9,8 @@ import os
 import pandas as pd
 import re
 
-class Dataset:
-	def __init__( self, url, target_column, file = None ):
+class dataset:
+	def __init__( self, file_path, target_column ):
 		parsed_url = urlparse( url )
 
 		if parsed_url.hostname == "www.kaggle.com":
