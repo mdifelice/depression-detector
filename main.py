@@ -8,6 +8,10 @@ import sys
 from classes.util import *
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GridSearchCV, KFold, LeaveOneOut
+from sklearn.linear_model import LogisticRegressionCV
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.metrics import *
 from pycaret.classification import *
 from pycaret.classification import *
 from imblearn.under_sampling import RandomUnderSampler
@@ -49,12 +53,14 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 		session_id = random_seed,
 		train_size = 1 - test_ratio,
 		verbose = False,
+		fold_strategy = KFold( n_splits = int( len( dataset.index ) * ( 1 - test_ratio ) ) ),
 		**pycaret_setup_args
 	)
 
 	compare_models(
 		sort = "f1",
-#		errors = "raise",
+#errors = "raise",
+#		cross_validation = False,
 		verbose = False
 	)
 
@@ -62,10 +68,58 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 
 	metrics = pull()
 
+	'''
+	X = dataset.drop( target_column, axis = 1 )
+	y = dataset[ target_column ]
+
+	X_train, X_test, y_train, y_test = train_test_split( X, y, test_size = 0.3, random_state = random_seed )
+
+	model = LogisticRegressionCV()
+#model = GradientBoostingClassifier()
+
+	cv = KFold( random_state = random_seed, shuffle = True )
+#cv = LeaveOneOut()
+
+	param_grid = {
+		'penalty': ['l1', 'l2', 'elasticnet', None],
+		'C': [0.001, 0.01, 0.1, 1, 10, 100],
+		'solver': ['liblinear', 'saga'],
+		'l1_ratio': [0.2, 0.5, 0.8]
+	}
+#gs = GridSearchCV( model, param_grid, cv = cv, scoring = "f1" )
+#print(cross_validate(model, X_train, y_train, scoring = [ "accuracy", "f1", "precision", "recall", "roc_auc" ] ))
+#print(model.get_params())
+
+	model.fit( X_train, y_train )
+
+	y_pred = model.predict( X_test )
+
+#	gs.fit( X_train, y_train )
+
+#	tuned_model = gs.best_estimator_
+
+#	print( gs.best_params_ )
+#	y_pred_tuned = tuned_model.predict( X_test )
+
+	print( f"F1: {f1_score( y_test, y_pred )}" )
+	print( f"AUC: {roc_auc_score( y_test, y_pred )}" )
+	print( f"Accuracy: {accuracy_score( y_test, y_pred )}" )
+	print( f"Precision: {precision_score( y_test, y_pred )}" )
+	print( f"Recall: {recall_score( y_test, y_pred )}" )
+
+#	print( f"F1: {f1_score( y_test, y_pred_tuned )}" )
+#	print( f"AUC: {roc_auc_score( y_test, y_pred_tuned )}" )
+#	print( f"Accuracy: {accuracy_score( y_test, y_pred_tuned )}" )
+#	print( f"Precision: {precision_score( y_test, y_pred_tuned )}" )
+#	print( f"Recall: {recall_score( y_test, y_pred_tuned )}" )
+	sys.exit(1)
+	sys.exit(1)
+	'''
+
 	match = None
 	model = None
 	success = False
-	message = "No metrics found."
+	message = " No metrics found."
 	len_metrics = len( metrics )
 
 	if len_metrics:
@@ -128,9 +182,10 @@ column_acceptance_threshold = .25
 max_ohe_unique_values = 10
 f1_acceptance_threshold = .7
 correlation_acceptance_threshold = .6
+oversampling_threshold = 0
 
 try:
-	options, extra_args = getopt( sys.argv[ 1: ], "d:tpv" )
+	options, extra_args = getopt( sys.argv[ 1: ], "d:tpvo:" )
 except Exception as e:
 	print( f"Error parsing arguments: {e}" )
 	sys.exit(1)
@@ -150,6 +205,8 @@ for key, value in options:
 			pycaret = True
 		case "-d":
 			selected_datasets = list( map( str.strip, value.split( "," ) ) )
+		case "-o":
+			oversampling_threshold = int( value )
 
 with open( get_file_path( "metadata.json" ) ) as metadata_file:
 	metadata = json.load( metadata_file )
@@ -355,7 +412,7 @@ for dataset_id in selected_datasets:
 		X = engineered_dataset.drop( target_column, axis = 1 )
 		y = engineered_dataset[ target_column ]
 
-		oversampling = len(y) < 1000
+		oversampling = len(y) < oversampling_threshold
 
 		if oversampling:
 			rs = SMOTE( random_state = random_seed )
