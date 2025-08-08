@@ -5,14 +5,12 @@ import pandas as pd
 import numpy as np
 import re
 import sys
+import importlib
 from classes.util import *
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import GridSearchCV, KFold, LeaveOneOut
-from sklearn.linear_model import LogisticRegressionCV
-from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import *
-from pycaret.classification import *
 from pycaret.classification import *
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import SMOTE
@@ -39,136 +37,211 @@ def get_target_column( dataset_id ):
 	return target_column
 
 def get_formatted_metrics( success, metrics ):
-	return " \033[" + ( "32" if success else "31" ) + "m" + f"F1 {metrics["F1"]}, AUC {metrics["AUC"]}, Accuracy {metrics["Accuracy"]}, Precision {metrics["Prec."]}, Recall {metrics["Recall"]}" + "\033[0m"
+	return " \033[" + ( "32" if success else "31" ) + "m" + f"F1 {metrics["F1"]:.4f}, AUC {metrics["AUC"]:.4f}, Accuracy {metrics["Accuracy"]:.4f}, Precision {metrics["Prec."]:.4f}, Recall {metrics["Recall"]:.4f}" + "\033[0m"
 
 def experiment( title, dataset, tune = False, validation_dataset = None, **pycaret_setup_args ):
-	debug( title + "...", eol = False )
-
-	original_stdout = sys.stdout
-	sys.stdout = open( os.devnull, "w" )
-
-	setup(
-		data = dataset,
-		target = target_column,
-		session_id = random_seed,
-		train_size = 1 - test_ratio,
-		verbose = False,
-		fold_strategy = KFold( n_splits = int( len( dataset.index ) * ( 1 - test_ratio ) ) ),
-		**pycaret_setup_args
-	)
-
-	compare_models(
-		sort = "f1",
-#errors = "raise",
-#		cross_validation = False,
-		verbose = False
-	)
-
-	sys.stdout = original_stdout
-
-	metrics = pull()
-
-	'''
-	X = dataset.drop( target_column, axis = 1 )
-	y = dataset[ target_column ]
-
-	X_train, X_test, y_train, y_test = train_test_split( X, y, test_size = 0.3, random_state = random_seed )
-
-	model = LogisticRegressionCV()
-#model = GradientBoostingClassifier()
-
-	cv = KFold( random_state = random_seed, shuffle = True )
-#cv = LeaveOneOut()
-
-	param_grid = {
-		'penalty': ['l1', 'l2', 'elasticnet', None],
-		'C': [0.001, 0.01, 0.1, 1, 10, 100],
-		'solver': ['liblinear', 'saga'],
-		'l1_ratio': [0.2, 0.5, 0.8]
-	}
-#gs = GridSearchCV( model, param_grid, cv = cv, scoring = "f1" )
-#print(cross_validate(model, X_train, y_train, scoring = [ "accuracy", "f1", "precision", "recall", "roc_auc" ] ))
-#print(model.get_params())
-
-	model.fit( X_train, y_train )
-
-	y_pred = model.predict( X_test )
-
-#	gs.fit( X_train, y_train )
-
-#	tuned_model = gs.best_estimator_
-
-#	print( gs.best_params_ )
-#	y_pred_tuned = tuned_model.predict( X_test )
-
-	print( f"F1: {f1_score( y_test, y_pred )}" )
-	print( f"AUC: {roc_auc_score( y_test, y_pred )}" )
-	print( f"Accuracy: {accuracy_score( y_test, y_pred )}" )
-	print( f"Precision: {precision_score( y_test, y_pred )}" )
-	print( f"Recall: {recall_score( y_test, y_pred )}" )
-
-#	print( f"F1: {f1_score( y_test, y_pred_tuned )}" )
-#	print( f"AUC: {roc_auc_score( y_test, y_pred_tuned )}" )
-#	print( f"Accuracy: {accuracy_score( y_test, y_pred_tuned )}" )
-#	print( f"Precision: {precision_score( y_test, y_pred_tuned )}" )
-#	print( f"Recall: {recall_score( y_test, y_pred_tuned )}" )
-	sys.exit(1)
-	sys.exit(1)
-	'''
-
-	match = None
-	model = None
 	success = False
-	message = " No metrics found."
-	len_metrics = len( metrics )
 
-	if len_metrics:
-		max_auc = 0
-		match_index = 0
+	if ( unsupervised ):
+		pass
+		#todo
+	else:
+		debug( title + "...", eol = False )
 
-		for index in range( len_metrics ):
-			row = metrics.iloc[ index ]
+		metrics = pd.DataFrame()
 
-			if row["F1"] >= f1_acceptance_threshold:
-				if row["AUC"] > max_auc:
-					max_auc = row["AUC"]
-					match_index = index
+		if pycaret_setup_args:
+			original_stdout = sys.stdout
+			sys.stdout = open( os.devnull, "w" )
 
-				success = True
-			else:
-				break
-
-		match = metrics.iloc[ match_index ]
-		model_id = metrics.index[ match_index ]
-		model = create_model(
-			model_id,
-			verbose = False
-		)
-
-		if tune:
-			tuned_model = tune_model(
-				model,
-				optimize = 'F1',
-				n_iter = 100,
-				verbose = False
+			setup(
+				data = dataset,
+				target = target_column,
+				session_id = random_seed,
+				train_size = 1 - test_ratio,
+				verbose = False,
+				**pycaret_setup_args
 			)
 
-			metrics = pull()
+			if tune:
+				available_models = models()
 
-			match = metrics.loc['Mean']
+				for index in range( len( available_models ) ):
+					row = available_models.iloc[ index ]
 
-			success = match["F1"] > f1_acceptance_threshold
+					if row["Turbo"]:
+						model = tune_model(
+							create_model(
+								available_models.index[ index ],
+								verbose = False
+							),
+							optimize = "f1",
+							n_iter = pycaret_tune_iterations,
+							verbose = False
+						)
 
-		message = f" {model_id}: {get_formatted_metrics( success, match )}"
+						model_metrics = pull().loc["Mean"]
+						model_metrics.name = model
 
-	debug( message, timestamp = False )
+						metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
+			else:
+				compare_models(
+					verbose = False
+				)
 
-	if success and model is not None and validation_dataset is not None:
-		predictions = predict_model( model, data = validation_dataset, verbose = False )
+				models_metrics = pull()
 
-		metrics = pull()
+				for index in range( len( models_metrics ) ):
+					model = create_model( 
+						models_metrics.index[ index ],
+						verbose = False
+					)
 
-		debug( f"Validation: {get_formatted_metrics( metrics.loc[0]["F1"] > f1_acceptance_threshold, metrics.loc[0] )}")
+					model_metrics = models_metrics.iloc[ index ]
+					model_metrics.name = model
+
+					metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
+
+			sys.stdout = original_stdout
+		else:
+			X = dataset.drop( target_column, axis = 1 )
+			y = dataset[ target_column ]
+
+			X_train, X_test, y_train, y_test = train_test_split( X, y, test_size = 0.3, random_state = random_seed )
+
+			available_models = {
+				"sklearn.discriminant_analysis.LinearDiscriminantAnalysis" : {},
+				"sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis" : {},
+				"sklearn.ensemble.AdaBoostClassifier" : {
+					"constructor" : {
+						"estimator" : None,
+						"random_state" : random_seed,
+					}
+				},
+				"sklearn.ensemble.ExtraTreesClassifier" : {
+					"constructor" : {
+						"random_state" : random_seed,
+					}
+				},
+				"sklearn.ensemble.GradientBoostingClassifier" : {
+					"constructor" : {
+						"random_state" : random_seed,
+					}
+				},
+				"sklearn.ensemble.RandomForestClassifier" : {
+					"constructor" : {
+						"random_state" : random_seed,
+					},
+				},
+				"sklearn.gaussian_process.GaussianProcessClassifier" : {
+					"constructor" : {
+						"random_state" : random_seed,
+					},
+				},
+				"sklearn.linear_model.LogisticRegression" : {
+					"constructor" : {
+						"random_state" : random_seed,
+					},
+				},
+				"sklearn.linear_model.RidgeClassifier" : {
+					"constructor" : {
+						"random_state" : random_seed,
+					},
+				},
+				"sklearn.naive_bayes.BernoulliNB" : {},
+				"sklearn.neighbors.KNeighborsClassifier" : {},
+				"sklearn.svm.LinearSVC" : {
+					"constructor" : {
+						"random_state" : random_seed,
+					},
+				},
+				"sklearn.tree.DecisionTreeClassifier" : {
+					"constructor" : {
+						"random_state" : random_seed,
+					},
+				},
+				"xgboost.XGBClassifier" : {
+					"constructor" : {
+						"random_state" : random_seed,
+					},
+				}
+# Missing LGBM
+			}
+
+			for available_model, settings in available_models.items():
+				module_name, class_name = available_model.rsplit( '.', 1 )
+
+				module = importlib.import_module( module_name )
+
+				args = settings.get( "constructor", {} )
+
+				model = getattr( module, class_name )( **args )
+
+				if tune:
+					param_grid = settings.get( "param_grid" )
+
+					if param_grid:
+						cv = KFold( random_state = random_seed, shuffle = True )
+						#cv = LeaveOneOut()
+
+						search = GridSearchCV( model, param_grid, cv = cv, scoring = "roc_auc" )
+
+						search.fit( X_train, y_train )
+
+						model = search.best_estimator_
+					else:
+						model = None
+				else:
+					model.fit( X_train, y_train )
+
+				if model:
+					y_pred = model.predict( X_test )
+
+					model_metrics = pd.Series( {
+						"F1" : f1_score( y_test, y_pred ),
+						"AUC" : roc_auc_score( y_test, y_pred ),
+						"Accuracy" : accuracy_score( y_test, y_pred ),
+						"Prec." : precision_score( y_test, y_pred ),
+						"Recall" : recall_score( y_test, y_pred ),
+					} )
+
+					model_metrics.name = model
+
+					metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
+
+		if metrics.empty:
+			message = "No metrics found."
+		else:
+			max_auc = 0
+			best_model_index = 0
+
+			metrics.sort_values( by = "AUC", ascending = False, inplace = True )
+
+			for index in range( len( metrics ) ):
+				model_metrics = metrics.iloc[ index ]
+
+				if model_metrics["F1"] >= f1_acceptance_threshold:
+					if model_metrics["AUC"] > max_auc:
+						max_auc = model_metrics["AUC"]
+						best_model_index = index
+
+					success = True
+
+			best_model = metrics.index[ best_model_index ]
+
+			message = f"{best_model.__class__.__name__}: {get_formatted_metrics( success, metrics.iloc[ best_model_index ] )}"
+
+		debug( " " + message, timestamp = False )
+
+		if success and model is not None and validation_dataset is not None:
+			validation_metrics = {}
+
+			if not validation_metrics:
+				message = "No validation metrics"
+			else:
+				message( f"Validation: {get_formatted_metrics( validation_metrics["F1"] > f1_acceptance_threshold, validation_metrics )}")
+
+			debug( message )
 	
 	return success
 
@@ -183,16 +256,18 @@ max_ohe_unique_values = 10
 f1_acceptance_threshold = .7
 correlation_acceptance_threshold = .6
 oversampling_threshold = 0
+pycaret_tune_iterations = 100
 
 try:
-	options, extra_args = getopt( sys.argv[ 1: ], "d:tpvo:" )
+	options, extra_args = getopt( sys.argv[ 1: ], "d:tp:vo:u" )
 except Exception as e:
 	print( f"Error parsing arguments: {e}" )
 	sys.exit(1)
 
 train = False
-pycaret = False
+pycaret = None
 validate = False
+unsupervised = False
 selected_datasets = list( map( str, range( 1, 11 ) ) )
 
 for key, value in options:
@@ -202,7 +277,9 @@ for key, value in options:
 		case "-v":
 			validate = True
 		case "-p":
-			pycaret = True
+			pycaret = value
+		case "-u":
+			unsupervised = True
 		case "-d":
 			selected_datasets = list( map( str.strip, value.split( "," ) ) )
 		case "-o":
@@ -290,7 +367,7 @@ for dataset_id in selected_datasets:
 				if len( unique_values ) != 2 or unique_values[0] != 0 or unique_values[1] != 1:
 					engineered_dataset[ col ] = engineered_dataset[ col ].apply( lambda x: 1 if x in target_definition else 0 )
 
-		dataset_for_pycaret = engineered_dataset.copy()
+		unprocessed_dataset = engineered_dataset.copy()
 
 		for col in engineered_dataset.select_dtypes( include=[ "object" ] ):
 			if not get_column_metadata( dataset_id, col, "multiple" ):
@@ -386,7 +463,7 @@ for dataset_id in selected_datasets:
 
 	column_renamer = lambda x: re.sub( "[^A-Za-z0-9_]+", "_", x )
 	engineered_dataset = engineered_dataset.rename( columns = column_renamer )
-	dataset_for_pycaret = dataset_for_pycaret.rename( columns = column_renamer )
+	unprocessed_dataset = unprocessed_dataset.rename( columns = column_renamer )
 
 	if validate:
 		# Separating for validation
@@ -430,55 +507,69 @@ for dataset_id in selected_datasets:
 			debug( "No target column. Skipping supervised analysis." )
 			pass
 		else:
-			experiments_settings = {
-				"Custom" : {
-					"dataset" : balanced_dataset,
-					"pycaret_setup_args" : {
-						"preprocess" : False
-					}
-				},
-				"Custom (tuned)" : {
-					"dataset" : balanced_dataset,
-					"tune" : True,
-					"pycaret_setup_args" : {
-						"preprocess" : False
-					}
-				}
-			}
-
-			if pycaret:
-				experiments_settings |= {
-					"Pycaret" : {
-						"dataset" : dataset_for_pycaret
-					},
-					"Pycaret (normalized)" : {
-						"dataset" : dataset_for_pycaret,
-						"pycaret_setup_args" : {
-							"normalize" : True
-						}
-					},
-					"Pycaret (balanced)" : {
-						"dataset" : dataset_for_pycaret,
-						"pycaret_setup_args" : {
-							"fix_imbalance" : True
-						}
-					},
-					"Pycaret (normalized/balanced)" : {
-						"dataset" : dataset_for_pycaret,
-						"pycaret_setup_args" : {
-							"normalize" : True,
-							"fix_imbalance" : True
-						}
-					},
-					"Pycaret (normalized/balanced/tuned)" : {
-						"dataset" : dataset_for_pycaret,
-						"tune" : True,
-						"pycaret_setup_args" : {
-							"normalize" : True,
-							"fix_imbalance" : True
+			match pycaret:
+				case 'only_training':
+					experiments_settings = {
+						"Pycaret only training" : {
+							"dataset" : balanced_dataset,
+							"pycaret_setup_args" : {
+								"preprocess" : False
+							}
+						},
+						"Pycaret only training and tuning" : {
+							"dataset" : balanced_dataset,
+							"tune" : True,
+							"pycaret_setup_args" : {
+								"preprocess" : False
+							}
 						}
 					}
-				}
+				case 'complete':
+					experiments_settings = {
+						"Pycaret" : {
+							"dataset" : unprocessed_dataset,
+							"pycaret_setup_args" : {
+								"preprocess" : True
+							}
+						},
+						"Pycaret with normalization" : {
+							"dataset" : unprocessed_dataset,
+							"pycaret_setup_args" : {
+								"normalize" : True
+							}
+						},
+						"Pycaret with balancing" : {
+							"dataset" : unprocessed_dataset,
+							"pycaret_setup_args" : {
+								"fix_imbalance" : True
+							}
+						},
+						"Pycaret with normalization and balancing" : {
+							"dataset" : unprocessed_dataset,
+							"pycaret_setup_args" : {
+								"normalize" : True,
+								"fix_imbalance" : True
+							}
+						},
+						"Pycaret with normalization, balancing and tuning" : {
+							"dataset" : unprocessed_dataset,
+							"tune" : True,
+							"pycaret_setup_args" : {
+								"normalize" : True,
+								"fix_imbalance" : True
+							}
+						}
+					}
+				case _:
+					experiments_settings = {
+						"Custom" : {
+							"dataset" : balanced_dataset,
+						},
+						"Custom with tuning" : {
+							"dataset" : balanced_dataset,
+							"tune" : True,
+						},
+					}
 
 			for key, value in experiments_settings.items():
 				if experiment( key, value.get( "dataset" ), tune = value.get( "tune", False ), validation_dataset = validation_dataset if validate else None, **value.get( "pycaret_setup_args", {} ) ):
