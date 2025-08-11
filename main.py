@@ -5,26 +5,26 @@ import pandas as pd
 import numpy as np
 import re
 import sys
+import time
 import importlib
 from classes.util import *
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
-from sklearn.model_selection import GridSearchCV, KFold, LeaveOneOut
+from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.metrics import *
 from pycaret.classification import *
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import SMOTE
 from getopt import getopt
 
-def get_column_metadata( dataset_id, col, field ):
-	value = None
+def get_metadata_setting( setting, default_value ):
+	return metadata.get( setting, default_value ) if metadata else default_value
 
-	if metadata:
-		if dataset_id in metadata:
-			if col in metadata[ dataset_id ]:
-				value = metadata[ dataset_id ].get( col ).get( field )
-
-	return value
+def get_column_metadata( dataset_id, column, field ):
+	return get_metadata_setting( "datasets", {} ) \
+	.get( dataset_id, {} ) \
+	.get( column, {} ) \
+	.get( field )
 
 def get_target_column( dataset_id ):
 	target_column = None
@@ -36,8 +36,23 @@ def get_target_column( dataset_id ):
 
 	return target_column
 
-def get_formatted_metrics( success, metrics ):
-	return " \033[" + ( "32" if success else "31" ) + "m" + f"F1 {metrics["F1"]:.4f}, AUC {metrics["AUC"]:.4f}, Accuracy {metrics["Accuracy"]:.4f}, Precision {metrics["Prec."]:.4f}, Recall {metrics["Recall"]:.4f}" + "\033[0m"
+def get_formatted_metrics( metrics ):
+	return " \033[" + ( "32" if metrics["F1"] >= f1_acceptance_threshold else "31" ) + "m" + f"F1 {metrics["F1"]:.4f}, AUC {metrics["AUC"]:.4f}, Accuracy {metrics["Accuracy"]:.4f}, Precision {metrics["Prec."]:.4f}, Recall {metrics["Recall"]:.4f}" + ( f", TT {metrics["TT (Sec)"]:.4f}" if metrics["TT (Sec)"] is not None else "" ) + "\033[0m"
+
+def get_current_time():
+	return time.time()
+
+def get_model_metrics( model, X, y, time = None ):
+	y_pred = model.predict( X )
+
+	return pd.Series( {
+		"F1" : f1_score( y, y_pred ),
+		"AUC" : roc_auc_score( y, y_pred ),
+		"Accuracy" : accuracy_score( y, y_pred ),
+		"Prec." : precision_score( y, y_pred ),
+		"Recall" : recall_score( y, y_pred ),
+		"TT (Sec)" : time,
+	} )
 
 def experiment( title, dataset, tune = False, validation_dataset = None, **pycaret_setup_args ):
 	success = False
@@ -50,10 +65,10 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 
 		metrics = pd.DataFrame()
 
-		if pycaret_setup_args:
-			original_stdout = sys.stdout
-			sys.stdout = open( os.devnull, "w" )
+		original_stdout = sys.stdout
+		sys.stdout = open( os.devnull, "w" )
 
+		if pycaret_setup_args:
 			setup(
 				data = dataset,
 				target = target_column,
@@ -70,6 +85,8 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 					row = available_models.iloc[ index ]
 
 					if row["Turbo"]:
+						start_time = get_current_time()
+
 						model = tune_model(
 							create_model(
 								available_models.index[ index ],
@@ -81,6 +98,7 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 						)
 
 						model_metrics = pull().loc["Mean"]
+						model_metrics["TT (Sec)"] = get_current_time() - start_time
 						model_metrics.name = model
 
 						metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
@@ -101,145 +119,105 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 					model_metrics.name = model
 
 					metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
-
-			sys.stdout = original_stdout
 		else:
 			X = dataset.drop( target_column, axis = 1 )
 			y = dataset[ target_column ]
 
 			X_train, X_test, y_train, y_test = train_test_split( X, y, test_size = 0.3, random_state = random_seed )
 
-			available_models = {
-				"sklearn.discriminant_analysis.LinearDiscriminantAnalysis" : {},
-				"sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis" : {},
-				"sklearn.ensemble.AdaBoostClassifier" : {
-					"constructor" : {
-						"estimator" : None,
-						"random_state" : random_seed,
-					}
-				},
-				"sklearn.ensemble.ExtraTreesClassifier" : {
-					"constructor" : {
-						"random_state" : random_seed,
-					}
-				},
-				"sklearn.ensemble.GradientBoostingClassifier" : {
-					"constructor" : {
-						"random_state" : random_seed,
-					}
-				},
-				"sklearn.ensemble.RandomForestClassifier" : {
-					"constructor" : {
-						"random_state" : random_seed,
-					},
-				},
-				"sklearn.gaussian_process.GaussianProcessClassifier" : {
-					"constructor" : {
-						"random_state" : random_seed,
-					},
-				},
-				"sklearn.linear_model.LogisticRegression" : {
-					"constructor" : {
-						"random_state" : random_seed,
-					},
-				},
-				"sklearn.linear_model.RidgeClassifier" : {
-					"constructor" : {
-						"random_state" : random_seed,
-					},
-				},
-				"sklearn.naive_bayes.BernoulliNB" : {},
-				"sklearn.neighbors.KNeighborsClassifier" : {},
-				"sklearn.svm.LinearSVC" : {
-					"constructor" : {
-						"random_state" : random_seed,
-					},
-				},
-				"sklearn.tree.DecisionTreeClassifier" : {
-					"constructor" : {
-						"random_state" : random_seed,
-					},
-				},
-				"xgboost.XGBClassifier" : {
-					"constructor" : {
-						"random_state" : random_seed,
-					},
-				}
-# Missing LGBM
-			}
+			algorithms = get_metadata_setting( "supervised_algorithms", {} )
 
-			for available_model, settings in available_models.items():
-				module_name, class_name = available_model.rsplit( '.', 1 )
+			for algorithm_name, settings in algorithms.items():
+				module_name, class_name = algorithm_name.rsplit( '.', 1 )
 
 				module = importlib.import_module( module_name )
 
-				args = settings.get( "constructor", {} )
+				constructor_settings = settings.get( "constructor", {} )
+
+				args = constructor_settings.get( "arguments", {} )
+
+				if constructor_settings.get( "random_state" ):
+					args["random_state"] = random_seed
 
 				model = getattr( module, class_name )( **args )
 
+				start_time = get_current_time()
+
 				if tune:
-					param_grid = settings.get( "param_grid" )
+					param_grids = settings.get( "param_grids" )
 
-					if param_grid:
-						cv = KFold( random_state = random_seed, shuffle = True )
-						#cv = LeaveOneOut()
+					if not param_grids:
+						param_grid = settings.get( "param_grid" )
 
-						search = GridSearchCV( model, param_grid, cv = cv, scoring = "roc_auc" )
+						if param_grid:
+							param_grids = list( param_grid )
 
-						search.fit( X_train, y_train )
+					if param_grids:
+						for param_grid in param_grids:
+							cv = KFold( random_state = random_seed, shuffle = True )
 
-						model = search.best_estimator_
+							search = GridSearchCV( model, param_grid, cv = cv, scoring = "roc_auc" )
+
+							search.fit( X_train, y_train )
+
+							model = search.best_estimator_
 					else:
 						model = None
 				else:
 					model.fit( X_train, y_train )
 
 				if model:
-					y_pred = model.predict( X_test )
-
-					model_metrics = pd.Series( {
-						"F1" : f1_score( y_test, y_pred ),
-						"AUC" : roc_auc_score( y_test, y_pred ),
-						"Accuracy" : accuracy_score( y_test, y_pred ),
-						"Prec." : precision_score( y_test, y_pred ),
-						"Recall" : recall_score( y_test, y_pred ),
-					} )
-
+					model_metrics = get_model_metrics( model, X_test, y_test, get_current_time() - start_time )
 					model_metrics.name = model
 
 					metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
 
+		sys.stdout = original_stdout
+
+		best_model = None
+
 		if metrics.empty:
 			message = "No metrics found."
 		else:
-			max_auc = 0
-			best_model_index = 0
+			models_to_print = []
 
 			metrics.sort_values( by = "AUC", ascending = False, inplace = True )
 
-			for index in range( len( metrics ) ):
-				model_metrics = metrics.iloc[ index ]
+			if print_all:
+				for index in range( len( metrics ) ):
+					models_to_print[ models.index[ index ] ] = metrics.iloc[ index ]
 
-				if model_metrics["F1"] >= f1_acceptance_threshold:
-					if model_metrics["AUC"] > max_auc:
-						max_auc = model_metrics["AUC"]
-						best_model_index = index
+			else:
+				best_model_index = 0
+				max_auc = 0
 
-					success = True
+				for index in range( len( metrics ) ):
+					model_metrics = metrics.iloc[ index ]
 
-			best_model = metrics.index[ best_model_index ]
+					if model_metrics["F1"] >= f1_acceptance_threshold:
+						if model_metrics["AUC"] > max_auc:
+							max_auc = model_metrics["AUC"]
+							best_model_index = index
 
-			message = f"{best_model.__class__.__name__}: {get_formatted_metrics( success, metrics.iloc[ best_model_index ] )}"
+				models_to_print[ models.index[ best_model_index ] ] = metrics.iloc[ best_model_index ]
+
+			for model, model_metrics in models_to_print:
+				message += ( " " if len( models_to_print ) == 1 else "\n" ) + f"{model.__class__.__name__}: {get_formatted_metrics( model_metrics )}"
 
 		debug( " " + message, timestamp = False )
 
-		if success and model is not None and validation_dataset is not None:
+		if success and best_model is not None and validation_dataset is not None:
 			validation_metrics = {}
+
+			X = validation_dataset.drop( target_column, axis = 1 )
+			y = validation_dataset[ target_column ]
+
+			validation_metrics = get_model_metrics( model, X, y )
 
 			if not validation_metrics:
 				message = "No validation metrics"
 			else:
-				message( f"Validation: {get_formatted_metrics( validation_metrics["F1"] > f1_acceptance_threshold, validation_metrics )}")
+				message( f"Validation: {get_formatted_metrics( validation_metrics )}")
 
 			debug( message )
 	
@@ -268,6 +246,7 @@ train = False
 pycaret = None
 validate = False
 unsupervised = False
+print_all = False
 selected_datasets = list( map( str, range( 1, 11 ) ) )
 
 for key, value in options:
@@ -284,6 +263,8 @@ for key, value in options:
 			selected_datasets = list( map( str.strip, value.split( "," ) ) )
 		case "-o":
 			oversampling_threshold = int( value )
+		case "-a":
+			print_all = True
 
 with open( get_file_path( "metadata.json" ) ) as metadata_file:
 	metadata = json.load( metadata_file )
