@@ -45,7 +45,7 @@ def get_target_column( dataset_id ):
 	return target_column
 
 def get_formatted_metrics( metrics ):
-	return "\033[" + ( "32" if metrics["F1"] >= f1_acceptance_threshold else "31" ) + "m" + f"F1 {metrics["F1"]:.4f}, AUC {metrics["AUC"]:.4f}, Accuracy {metrics["Accuracy"]:.4f}, Precision {metrics["Prec."]:.4f}, Recall {metrics["Recall"]:.4f}" + ( f", TT {metrics["TT (Sec)"]:.4f}" if metrics["TT (Sec)"] is not None else "" ) + "\033[0m"
+	return "\033[" + ( "32" if metrics_are_successful( metrics ) else "31" ) + "m" + f"F1 {metrics["F1"]:.4f}, AUC {metrics["AUC"]:.4f}, Accuracy {metrics["Accuracy"]:.4f}, Precision {metrics["Prec."]:.4f}, Recall {metrics["Recall"]:.4f}" + ( f", TT {metrics["TT (Sec)"]:.4f}" if not np.isnan( metrics["TT (Sec)"] ) else "" ) + "\033[0m"
 
 def get_current_time():
 	return time.time()
@@ -53,9 +53,14 @@ def get_current_time():
 def get_model_metrics( model, X, y, time = None ):
 	y_pred = model.predict( X )
 
+	try:
+		row_auc_score_metric = roc_auc_score( y, y_pred )
+	except:
+		row_auc_score_metric = 0
+
 	return pd.Series( {
 		"F1" : f1_score( y, y_pred ),
-		"AUC" : roc_auc_score( y, y_pred ),
+		"AUC" : row_auc_score_metric,
 		"Accuracy" : accuracy_score( y, y_pred ),
 		"Prec." : precision_score( y, y_pred ),
 		"Recall" : recall_score( y, y_pred ),
@@ -71,6 +76,9 @@ def expand_model_names( model_names ):
 				expanded_model_names.append( available_model )
 
 	return expanded_model_names
+
+def metrics_are_successful( metrics ):
+	return metrics["F1"] >= f1_acceptance_threshold
 
 def experiment( title, dataset, tune = False, validation_dataset = None, **pycaret_setup_args ):
 	success = False
@@ -233,7 +241,9 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 
 				model_metrics = metrics.iloc[ index ]
 
-				if model_metrics["F1"] >= f1_acceptance_threshold:
+				if metrics_are_successful( model_metrics ):
+					success = True
+
 					if model_metrics["AUC"] > max_auc:
 						max_auc = model_metrics["AUC"]
 						best_model_index = index
@@ -247,17 +257,15 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 			for model, model_metrics in models_to_print.items():
 				message += ( " " if len( models_to_print ) == 1 else "\n" ) + f"{model.__class__.__name__}: {get_formatted_metrics( model_metrics )}"
 
-		print_message( " " + message, timestamp = False )
+		print_message( message, timestamp = False )
 
 		if success and best_model is not None and validation_dataset is not None:
-			validation_metrics = {}
-
 			X = validation_dataset.drop( target_column, axis = 1 )
 			y = validation_dataset[ target_column ]
 
-			validation_metrics = get_model_metrics( model, X, y )
+			validation_metrics = get_model_metrics( best_model, X, y )
 
-			if not validation_metrics:
+			if validation_metrics.empty:
 				message = "No validation metrics"
 			else:
 				message = f"Validation: {get_formatted_metrics( validation_metrics )}"
@@ -277,7 +285,7 @@ max_ohe_unique_values = 10
 f1_acceptance_threshold = .7
 correlation_acceptance_threshold = .6
 oversampling_threshold = 0
-tune_iterations = 10000
+tune_iterations = 100
 
 try:
 	options, extra_args = getopt( sys.argv[ 1: ], "d:tp:vo:uaerm:x:" )
@@ -365,7 +373,9 @@ for dataset_id in selected_datasets:
 			dataset = pd.read_excel( file_path )
 
 	if dataset is not None:
-		print_message( "Preprocessing..." )
+		if not train or not verbose:
+			print_message( "Preprocessing..." )
+
 		preprocessed_dataset = dataset.copy()
 
 		rows_to_remove = []
@@ -396,9 +406,11 @@ for dataset_id in selected_datasets:
 				.dropna()
 		)
 
-		print_message( f"Dataset #{dataset_id} dimension reduction from {dataset.shape} to {preprocessed_dataset.shape}.")
+		if not train or not verbose:
+			print_message( f"Dataset #{dataset_id} dimension reduction from {dataset.shape} to {preprocessed_dataset.shape}.")
 
-		print_message( "Engineering..." )
+			print_message( "Engineering..." )
+
 		engineered_dataset = preprocessed_dataset.copy()
 
 		# Remove columns
@@ -480,7 +492,8 @@ for dataset_id in selected_datasets:
 
 	engineered_dataset = engineered_dataset.drop( columns = list( to_drop ) )
 
-	print_message( f"Correlation analysis on dataset #{dataset_id}, removing {len(to_drop)} column/s: {sorted(to_drop)}" )
+	if not train or not verbose:
+		print_message( f"Correlation analysis on dataset #{dataset_id}, removing {len(to_drop)} column/s: {sorted(to_drop)}" )
 
 	# Identify categorical columns for one-hot encoding (excluding target)
 	categorical_cols_to_encode = []
@@ -502,14 +515,16 @@ for dataset_id in selected_datasets:
 			columns.append( col[0] )
 			message += ( ", " if message else "" ) + f"{col[0]} ({col[1]} valores únicos)"
 
-		print_message( f"One-hot encoding on dataset #{dataset_id}, {len(categorical_cols_to_encode)} column/s: {message}" )
+		if not train or not verbose:
+			print_message( f"One-hot encoding on dataset #{dataset_id}, {len(categorical_cols_to_encode)} column/s: {message}" )
 
 		engineered_dataset = pd.get_dummies( engineered_dataset, columns = columns, dummy_na = False ) # dummy_na=False to not create a column for NaN
 
 	# Drop duplicate rows
 	engineered_dataset = engineered_dataset.drop_duplicates()
 
-	print_message( f"Dataset #{dataset_id} dimension modification after engineering from {preprocessed_dataset.shape} to {engineered_dataset.shape}.")
+	if not train or not verbose:
+		print_message( f"Dataset #{dataset_id} dimension modification after engineering from {preprocessed_dataset.shape} to {engineered_dataset.shape}.")
 
 	column_renamer = lambda x: re.sub( "[^A-Za-z0-9_]+", "_", x )
 	engineered_dataset = engineered_dataset.rename( columns = column_renamer )
@@ -530,7 +545,8 @@ for dataset_id in selected_datasets:
 		else:
 			engineered_dataset, validation_dataset = train_test_split( engineered_dataset, test_size = validation_ratio, random_state = random_seed )
 
-		print_message( f"Engineered dataset: {engineered_dataset.shape}, Validation dataset: {validation_dataset.shape}" )
+		if not train or not verbose:
+			print_message( f"Engineered dataset: {engineered_dataset.shape}, Validation dataset: {validation_dataset.shape}" )
 
 	if target_column is not None:
 		target_column = column_renamer( target_column )
@@ -550,7 +566,8 @@ for dataset_id in selected_datasets:
 
 		balanced_dataset = pd.concat( [ X, pd.Series( y, name = target_column ) ], axis = 1 )
 
-		print_message( f"Dataset #{dataset_id} dimension modification after balancing from {engineered_dataset.shape} to {balanced_dataset.shape}.")
+		if not train or not verbose:
+			print_message( f"Dataset #{dataset_id} dimension modification after balancing from {engineered_dataset.shape} to {balanced_dataset.shape}.")
 
 	if train:
 		if target_column is None:
