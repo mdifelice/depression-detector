@@ -93,7 +93,8 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 
 		if not verbose:
 			original_stdout = sys.stdout
-			original_stderr = sys.stdout
+			original_stderr = sys.stderr
+
 			sys.stdout = open( os.devnull, "w" )
 			sys.stderr = open( os.devnull, "w" )
 
@@ -373,7 +374,7 @@ for dataset_id in selected_datasets:
 			dataset = pd.read_excel( file_path )
 
 	if dataset is not None:
-		if not train or not verbose:
+		if not train or verbose:
 			print_message( "Preprocessing..." )
 
 		preprocessed_dataset = dataset.copy()
@@ -406,7 +407,7 @@ for dataset_id in selected_datasets:
 				.dropna()
 		)
 
-		if not train or not verbose:
+		if not train or verbose:
 			print_message( f"Dataset #{dataset_id} dimension reduction from {dataset.shape} to {preprocessed_dataset.shape}.")
 
 			print_message( "Engineering..." )
@@ -492,7 +493,7 @@ for dataset_id in selected_datasets:
 
 	engineered_dataset = engineered_dataset.drop( columns = list( to_drop ) )
 
-	if not train or not verbose:
+	if not train or verbose:
 		print_message( f"Correlation analysis on dataset #{dataset_id}, removing {len(to_drop)} column/s: {sorted(to_drop)}" )
 
 	# Identify categorical columns for one-hot encoding (excluding target)
@@ -515,7 +516,7 @@ for dataset_id in selected_datasets:
 			columns.append( col[0] )
 			message += ( ", " if message else "" ) + f"{col[0]} ({col[1]} valores únicos)"
 
-		if not train or not verbose:
+		if not train or verbose:
 			print_message( f"One-hot encoding on dataset #{dataset_id}, {len(categorical_cols_to_encode)} column/s: {message}" )
 
 		engineered_dataset = pd.get_dummies( engineered_dataset, columns = columns, dummy_na = False ) # dummy_na=False to not create a column for NaN
@@ -523,7 +524,7 @@ for dataset_id in selected_datasets:
 	# Drop duplicate rows
 	engineered_dataset = engineered_dataset.drop_duplicates()
 
-	if not train or not verbose:
+	if not train or verbose:
 		print_message( f"Dataset #{dataset_id} dimension modification after engineering from {preprocessed_dataset.shape} to {engineered_dataset.shape}.")
 
 	column_renamer = lambda x: re.sub( "[^A-Za-z0-9_]+", "_", x )
@@ -545,7 +546,7 @@ for dataset_id in selected_datasets:
 		else:
 			engineered_dataset, validation_dataset = train_test_split( engineered_dataset, test_size = validation_ratio, random_state = random_seed )
 
-		if not train or not verbose:
+		if not train or verbose:
 			print_message( f"Engineered dataset: {engineered_dataset.shape}, Validation dataset: {validation_dataset.shape}" )
 
 	if target_column is not None:
@@ -566,7 +567,7 @@ for dataset_id in selected_datasets:
 
 		balanced_dataset = pd.concat( [ X, pd.Series( y, name = target_column ) ], axis = 1 )
 
-		if not train or not verbose:
+		if not train or verbose:
 			print_message( f"Dataset #{dataset_id} dimension modification after balancing from {engineered_dataset.shape} to {balanced_dataset.shape}.")
 
 	if train:
