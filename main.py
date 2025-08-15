@@ -5,8 +5,7 @@ from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
 from pycaret.classification import *
 from sklearn.metrics import *
-from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, KFold
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, KFold, train_test_split, cross_validate
 from sklearn.preprocessing import MinMaxScaler
 import importlib
 import json
@@ -45,26 +44,24 @@ def get_target_column( dataset_id ):
 	return target_column
 
 def get_formatted_metrics( metrics ):
-	return "\033[" + ( "32" if metrics_are_successful( metrics ) else "31" ) + "m" + f"F1 {metrics["F1"]:.4f}, AUC {metrics["AUC"]:.4f}, Accuracy {metrics["Accuracy"]:.4f}, Precision {metrics["Prec."]:.4f}, Recall {metrics["Recall"]:.4f}" + ( f", TT {metrics["TT (Sec)"]:.4f}" if not np.isnan( metrics["TT (Sec)"] ) else "" ) + "\033[0m"
+	return "\033[" + ( "32" if metrics_are_successful( metrics ) else "31" ) + "m" + f"F1 {metrics["F1"]:.4f}, AUC {metrics["AUC"]:.4f}, Accuracy {metrics["Accuracy"]:.4f}, Precision {metrics["Prec."]:.4f}, Recall {metrics["Recall"]:.4f}" + f", TT {metrics["TT (Sec)"]:.4f}" + "\033[0m"
 
 def get_current_time():
 	return time.time()
 
 def get_model_metrics( model, X, y, time = None ):
-	y_pred = model.predict( X )
+	min_cv_folds = y.value_counts().min()
 
-	try:
-		row_auc_score_metric = roc_auc_score( y, y_pred )
-	except:
-		row_auc_score_metric = 0
+	scores = cross_validate( model, X, y, cv = cross_validation_folds if cross_validation_folds <= min_cv_folds else min_cv_folds, scoring = [ 'f1', 'roc_auc', 'accuracy', 'precision', 'recall' ] )
+	cv_time = sum( scores['fit_time'] )
 
 	return pd.Series( {
-		"F1" : f1_score( y, y_pred ),
-		"AUC" : row_auc_score_metric,
-		"Accuracy" : accuracy_score( y, y_pred ),
-		"Prec." : precision_score( y, y_pred ),
-		"Recall" : recall_score( y, y_pred ),
-		"TT (Sec)" : time,
+		"F1" : scores['test_f1'].mean(),
+		"AUC" : scores['test_roc_auc'].mean(),
+		"Accuracy" : scores['test_accuracy'].mean(),
+		"Prec." : scores['test_precision'].mean(),
+		"Recall" : scores['test_recall'].mean(),
+		"TT (Sec)" : time + cv_time if time else cv_time
 	} )
 
 def expand_model_names( model_names ):
@@ -162,7 +159,7 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 			X = dataset.drop( target_column, axis = 1 )
 			y = dataset[ target_column ]
 
-			X_train, X_test, y_train, y_test = train_test_split( X, y, test_size = test_ratio, random_state = random_seed )
+			X_train, X_test, y_train, y_test = train_test_split( X, y, test_size = test_ratio, random_state = random_seed, stratify = y )
 
 			for model_name, settings in available_models.items():
 				if model_name in selected_models:
@@ -282,11 +279,12 @@ validation_ratio = .2
 test_ratio = .3
 row_acceptance_threshold = .75
 column_acceptance_threshold = .25
-max_ohe_unique_values = 10
+max_ohe_unique_values = 25
 f1_acceptance_threshold = .7
 correlation_acceptance_threshold = .6
 oversampling_threshold = 0
-tune_iterations = 100
+tune_iterations = 1000
+cross_validation_folds = 5
 
 try:
 	options, extra_args = getopt( sys.argv[ 1: ], "d:tp:vo:uaerm:x:" )
@@ -539,7 +537,7 @@ for dataset_id in selected_datasets:
 			X = engineered_dataset.drop( target_column, axis = 1 )
 			y = engineered_dataset[ target_column ]
 
-			X_train, X_validation, y_train, y_validation = train_test_split( X, y, test_size = validation_ratio, random_state = random_seed )
+			X_train, X_validation, y_train, y_validation = train_test_split( X, y, test_size = validation_ratio, random_state = random_seed, stratify = y )
 
 			engineered_dataset = pd.concat( [ X_train, pd.Series( y_train, name = target_column ) ], axis = 1 )
 			validation_dataset = pd.concat( [ X_validation, pd.Series( y_validation, name = target_column ) ], axis = 1 )
