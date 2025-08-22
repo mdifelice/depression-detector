@@ -82,7 +82,7 @@ def expand_model_names( model_names ):
 def metrics_are_successful( metrics ):
 	return metrics["F1"] >= f1_acceptance_threshold
 
-def experiment( title, dataset, tune = False, validation_dataset = None, **pycaret_setup_args ):
+def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 	success = False
 
 	if ( unsupervised ):
@@ -206,10 +206,6 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 								if ( debug ):
 									print_message( f"Fitting {model.__class__.__name__}..." )
 
-								if validation_dataset is not None:
-									X_train = validation_dataset.drop( target_column, axis = 1 )
-									y_train = validation_dataset[ target_column ]
-
 								search.fit( X_train, y_train )
 
 								model = search.best_estimator_
@@ -271,7 +267,6 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 metadata = None
 allowed_extensions = [ "csv", "xlsx" ]
 random_seed = 123
-validation_ratio = .2
 test_ratio = .3
 row_acceptance_threshold = .75
 column_acceptance_threshold = .25
@@ -285,7 +280,6 @@ tune_scoring = "f1"
 force_tuning = False
 train = False
 pycaret = None
-validate = False
 debug = False
 unsupervised = False
 print_all = False
@@ -311,10 +305,6 @@ available_options = {
 	},
 	"f" : {
 		"variable" : "force_tuning",
-	},
-	"l" : {
-		"variable" : "validation_ratio",
-		"has_value" : float,
 	},
 	"m" : {
 		"has_value" : lambda x: list( map( str.strip, x.split( "," ) ) ),
@@ -344,9 +334,6 @@ available_options = {
 	},
 	"u" : {
 		"variable" : "unsupervised",
-	},
-	"v" : {
-		"variable" : "validate",
 	},
 	"w" : {
 		"variable" : "random_seed",
@@ -395,7 +382,6 @@ if excluded_models:
 
 for dataset_id in selected_datasets:
 	dataset = None
-	validation_dataset = None
 	file_path = None
 	extension = None
 
@@ -587,25 +573,6 @@ for dataset_id in selected_datasets:
 		engineered_dataset = engineered_dataset.rename( columns = column_renamer )
 		unprocessed_dataset = unprocessed_dataset.rename( columns = column_renamer )
 
-		if validate:
-			# Separating for validation
-			if target_column is not None:
-				target_column = column_renamer( target_column )
-
-				X = engineered_dataset.drop( target_column, axis = 1 )
-				y = engineered_dataset[ target_column ]
-
-				X_train, X_validation, y_train, y_validation = train_test_split( X, y, test_size = validation_ratio, random_state = random_seed, stratify = y )
-
-				if ( y_validation.value_counts().min() > 1 ):
-					engineered_dataset = pd.concat( [ X_train, pd.Series( y_train, name = target_column ) ], axis = 1 )
-					validation_dataset = pd.concat( [ X_validation, pd.Series( y_validation, name = target_column ) ], axis = 1 )
-			else:
-				engineered_dataset, validation_dataset = train_test_split( engineered_dataset, test_size = validation_ratio, random_state = random_seed )
-
-			if print_preprocessing and validation_dataset is not None:
-				print_message( f"Engineered dataset: {engineered_dataset.shape}, Validation dataset: {validation_dataset.shape}" )
-
 		if target_column is not None:
 			target_column = column_renamer( target_column )
 
@@ -697,7 +664,7 @@ for dataset_id in selected_datasets:
 						}
 
 				for key, value in experiments_settings.items():
-					if experiment( key, value.get( "dataset" ), tune = value.get( "tune", False ), validation_dataset = validation_dataset if validate else None, **value.get( "pycaret_setup_args", {} ) ):
+					if experiment( key, value.get( "dataset" ), tune = value.get( "tune", False ), **value.get( "pycaret_setup_args", {} ) ):
 						if not force_tuning:
 							break
 
