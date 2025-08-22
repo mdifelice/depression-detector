@@ -6,7 +6,7 @@ from imblearn.under_sampling import RandomUnderSampler
 from pycaret.classification import *
 from sklearn.metrics import *
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, KFold, train_test_split, cross_validate
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 import importlib
 import json
 import numpy as np
@@ -51,18 +51,23 @@ def get_current_time():
 
 def get_model_metrics( model, X, y, time = None ):
 	min_cv_folds = y.value_counts().min()
+	metrics = pd.Series()
 
-	scores = cross_validate( model, X, y, cv = cross_validation_folds if cross_validation_folds <= min_cv_folds else min_cv_folds, scoring = [ 'f1', 'roc_auc', 'accuracy', 'precision', 'recall' ] )
-	cv_time = sum( scores['fit_time'] )
+	try:
+		scores = cross_validate( model, X, y, cv = cross_validation_folds if cross_validation_folds <= min_cv_folds else min_cv_folds, scoring = [ "f1", "roc_auc", "accuracy", "precision", "recall" ], error_score = 'raise' )
 
-	return pd.Series( {
-		"F1" : scores['test_f1'].mean(),
-		"AUC" : scores['test_roc_auc'].mean(),
-		"Accuracy" : scores['test_accuracy'].mean(),
-		"Prec." : scores['test_precision'].mean(),
-		"Recall" : scores['test_recall'].mean(),
-		"TT (Sec)" : time + cv_time if time else cv_time
-	} )
+		cv_time = sum( scores["fit_time"] )
+
+		metrics.loc["F1"] = scores["test_f1"].mean()
+		metrics.loc["AUC"] = scores["test_roc_auc"].mean()
+		metrics.loc["Accuracy"] = scores["test_accuracy"].mean()
+		metrics.loc["Prec."] = scores["test_precision"].mean()
+		metrics.loc["Recall"] = scores["test_recall"].mean()
+		metrics.loc["TT (Sec)"] = time + cv_time if time else cv_time
+	except Exception as e:
+		pass
+
+	return metrics
 
 def expand_model_names( model_names ):
 	expanded_model_names = []
@@ -88,7 +93,7 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 
 		metrics = pd.DataFrame()
 
-		if not verbose:
+		if not debug:
 			original_stdout = sys.stdout
 			original_stderr = sys.stderr
 
@@ -101,7 +106,7 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 				target = target_column,
 				session_id = random_seed,
 				train_size = 1 - test_ratio,
-				verbose = verbose,
+				verbose = debug,
 				**pycaret_setup_args
 			)
 
@@ -117,11 +122,11 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 						model = tune_model(
 							create_model(
 								pycaret_available_models.index[ index ],
-								verbose = verbose
+								verbose = debug
 							),
-							optimize = "f1",
+							optimize = tune_scoring,
 							n_iter = tune_iterations,
-							verbose = verbose
+							verbose = debug
 						)
 
 						model_metrics = pull().loc["Mean"]
@@ -139,7 +144,7 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 						selected_models_ids.append( pycaret_available_models.index[ index ] )
 
 				compare_models(
-					verbose = verbose,
+					verbose = debug,
 					include = selected_models_ids
 				)
 
@@ -148,7 +153,7 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 				for index in range( len( models_metrics ) ):
 					model = create_model( 
 						models_metrics.index[ index ],
-						verbose = verbose
+						verbose = debug
 					)
 
 					model_metrics = models_metrics.iloc[ index ]
@@ -163,7 +168,7 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 
 			for model_name, settings in available_models.items():
 				if model_name in selected_models:
-					module_name, class_name = model_name.rsplit( '.', 1 )
+					module_name, class_name = model_name.rsplit( ".", 1 )
 
 					module = importlib.import_module( module_name )
 
@@ -194,12 +199,16 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 								cv = KFold( random_state = random_seed, shuffle = True )
 
 								if tune_iterations:
-									search = RandomizedSearchCV( model, param_grid, n_iter = tune_iterations, cv = cv, scoring = "roc_auc", random_state = random_seed, verbose = 0 if not verbose else 4, n_jobs = None if not turbo else -1 )
+									search = RandomizedSearchCV( model, param_grid, n_iter = tune_iterations, cv = cv, scoring = tune_scoring, random_state = random_seed, verbose = 0 if not debug else 4, n_jobs = None if not turbo else -1 )
 								else:
-									search = GridSearchCV( model, param_grid, cv = cv, scoring = "roc_auc", verbose = 0 if not verbose else 4, n_jobs = None if not turbo else -1 )
+									search = GridSearchCV( model, param_grid, cv = cv, scoring = tune_scoring, verbose = 0 if not debug else 4, n_jobs = None if not turbo else -1 )
 
-								if ( verbose ):
+								if ( debug ):
 									print_message( f"Fitting {model.__class__.__name__}..." )
+
+								if validation_dataset is not None:
+									X_train = validation_dataset.drop( target_column, axis = 1 )
+									y_train = validation_dataset[ target_column ]
 
 								search.fit( X_train, y_train )
 
@@ -207,7 +216,7 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 						else:
 							model = None
 					else:
-						if ( verbose ):
+						if ( debug ):
 							print_message( f"Fitting {model.__class__.__name__}..." )
 
 						model.fit( X_train, y_train )
@@ -218,14 +227,14 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 
 						metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
 
-		if not verbose:
+		if not debug:
 			sys.stdout = original_stdout
 			sys.stderr = original_stderr
 
 		best_model = None
 
 		if metrics.empty:
-			message = "No metrics found."
+			message = " No metrics found."
 		else:
 			best_model_index = 0
 			max_auc = 0
@@ -257,19 +266,6 @@ def experiment( title, dataset, tune = False, validation_dataset = None, **pycar
 
 		print_message( message, timestamp = False )
 
-		if success and best_model is not None and validation_dataset is not None:
-			X = validation_dataset.drop( target_column, axis = 1 )
-			y = validation_dataset[ target_column ]
-
-			validation_metrics = get_model_metrics( best_model, X, y )
-
-			if validation_metrics.empty:
-				message = "No validation metrics"
-			else:
-				message = f"Validation: {get_formatted_metrics( validation_metrics )}"
-
-			print_message( message )
-	
 	return success
 
 metadata = None
@@ -279,54 +275,105 @@ validation_ratio = .2
 test_ratio = .3
 row_acceptance_threshold = .75
 column_acceptance_threshold = .25
-max_ohe_unique_values = 25
+max_ohe_unique_values = 10
 f1_acceptance_threshold = .7
 correlation_acceptance_threshold = .6
 oversampling_threshold = 0
-tune_iterations = 1000
+tune_iterations = 10
 cross_validation_folds = 5
-
-try:
-	options, extra_args = getopt( sys.argv[ 1: ], "d:tp:vo:uaerm:x:" )
-except Exception as e:
-	print( f"Error parsing arguments: {e}" )
-	sys.exit(1)
-
+tune_scoring = "f1"
+force_tuning = False
 train = False
 pycaret = None
 validate = False
-verbose = False
+debug = False
 unsupervised = False
 print_all = False
 turbo = False
 selected_datasets = list( map( str, range( 1, 11 ) ) )
 selected_models = None
 excluded_models = None
+print_preprocessing = False
+
+available_options = {
+	"a" : {
+		"variable" : "print_all",
+	},
+	"c" : {
+		"variable" : "print_preprocessing",
+	},
+	"d" : {
+		"has_value" : lambda x: list( map( str.strip, x.split( "," ) ) ),
+		"variable" : "selected_datasets",
+	},
+	"e" : {
+		"variable" : "debug",
+	},
+	"f" : {
+		"variable" : "force_tuning",
+	},
+	"l" : {
+		"variable" : "validation_ratio",
+		"has_value" : float,
+	},
+	"m" : {
+		"has_value" : lambda x: list( map( str.strip, x.split( "," ) ) ),
+		"variable" : "selected_models",
+	},
+	"n" : {
+		"has_value" : int,
+		"variable" : "tune_iterations",
+	},
+	"o" : {
+		"has_value" : int,
+		"variable" : "oversampling_threshold",
+	},
+	"p" : {
+		"has_value" : True,
+		"variable" : "pycaret",
+	},
+	"r" : {
+		"variable" : "turbo",
+	},
+	"s" : {
+		"variable" : "test_ratio",
+		"has_value" : float,
+	},
+	"t" : {
+		"variable" : "train",
+	},
+	"u" : {
+		"variable" : "unsupervised",
+	},
+	"v" : {
+		"variable" : "validate",
+	},
+	"w" : {
+		"variable" : "random_seed",
+		"has_value" : int,
+	},
+	"x" : {
+		"has_value" : lambda x: list( map( str.strip, x.split( "," ) ) ),
+		"variable" : "excluded_models",
+	},
+}
+
+try:
+	options, extra_args = getopt( sys.argv[ 1: ], "".join( map( lambda x: x + ( ":" if available_options.get( x, {} ) .get( "has_value" ) else "" ), available_options.keys() ) ) )
+except Exception as e:
+	print( f"Error parsing arguments: {e}" )
+	sys.exit(1)
 
 for key, value in options:
-	match key:
-		case "-t":
-			train = True
-		case "-v":
-			validate = True
-		case "-p":
-			pycaret = value
-		case "-u":
-			unsupervised = True
-		case "-d":
-			selected_datasets = list( map( str.strip, value.split( "," ) ) )
-		case "-o":
-			oversampling_threshold = int( value )
-		case "-a":
-			print_all = True
-		case "-e":
-			verbose = True
-		case "-r":
-			turbo = True
-		case "-m":
-			selected_models = list( map( str.strip, value.split( "," ) ) )
-		case "-x":
-			excluded_models = list( map( str.strip, value.split( "," ) ) )
+	option_settings = available_options.get( key[ 1: ], {} )
+
+	if option_settings:
+		variable = option_settings.get( "variable" )
+
+		if variable:
+			parser = option_settings.get( "has_value", lambda x: True )
+
+			globals()[ variable ] = parser( value )
 
 with open( get_file_path( "metadata.json" ) ) as metadata_file:
 	metadata = json.load( metadata_file )
@@ -348,10 +395,9 @@ if excluded_models:
 
 for dataset_id in selected_datasets:
 	dataset = None
+	validation_dataset = None
 	file_path = None
 	extension = None
-
-	print_message( f"Dataset {dataset_id}..." )
 
 	for allowed_extension in allowed_extensions:
 		maybe_file_path = get_file_path( f"dataset-{dataset_id}.{allowed_extension}" )
@@ -372,7 +418,11 @@ for dataset_id in selected_datasets:
 			dataset = pd.read_excel( file_path )
 
 	if dataset is not None:
-		if not train or verbose:
+		print_message( f"Dataset {dataset_id} {dataset.shape}..." )
+
+		target_column = get_target_column( dataset_id )
+
+		if print_preprocessing:
 			print_message( "Preprocessing..." )
 
 		preprocessed_dataset = dataset.copy()
@@ -383,7 +433,7 @@ for dataset_id in selected_datasets:
 
 		for col in preprocessed_dataset.columns:
 			if get_column_metadata( dataset_id, col, "allow_na" ):
-				preprocessed_dataset[ col ] = preprocessed_dataset[ col ].fillna( '' )
+				preprocessed_dataset[ col ] = preprocessed_dataset[ col ].fillna( "" )
 			else:
 				preprocessed_dataset[ col ] = preprocessed_dataset[ col ].apply( lambda x : x.strip() if isinstance( x, str ) else x ).replace( "", np.nan )
 
@@ -396,7 +446,7 @@ for dataset_id in selected_datasets:
 		columns_to_remove = []
 
 		for col in preprocessed_dataset.columns:
-			if ( preprocessed_dataset[ col ].isnull().sum() / len( preprocessed_dataset[ col ] ) ) > column_acceptance_threshold:
+			if ( col != target_column and preprocessed_dataset[ col ].isnull().sum() / len( preprocessed_dataset[ col ] ) ) > column_acceptance_threshold:
 				columns_to_remove.append( col )
 
 		preprocessed_dataset = (
@@ -405,7 +455,7 @@ for dataset_id in selected_datasets:
 				.dropna()
 		)
 
-		if not train or verbose:
+		if print_preprocessing:
 			print_message( f"Dataset #{dataset_id} dimension reduction from {dataset.shape} to {preprocessed_dataset.shape}.")
 
 			print_message( "Engineering..." )
@@ -459,184 +509,196 @@ for dataset_id in selected_datasets:
 
 				engineered_dataset = engineered_dataset.drop( columns = [ col ] )
 
-	# Transform date columns to numeric values (e.g., timestamps)
-	for col in engineered_dataset.select_dtypes( include = [ "datetime64" ] ):
-		engineered_dataset[ col ] = pd.to_numeric(engineered_dataset[ col ] )
+		# Transform date columns to numeric values (e.g., timestamps)
+		for col in engineered_dataset.select_dtypes( include = [ "datetime64" ] ):
+			engineered_dataset[ col ] = pd.to_numeric(engineered_dataset[ col ] )
 
-	# Apply Minmaxscaler
-	scaler = MinMaxScaler()
-	engineered_dataset[ engineered_dataset.columns ] = scaler.fit_transform( engineered_dataset[ engineered_dataset.columns ] )
+		# Apply scaling
+		scaler = StandardScaler()
 
-	# Correlation analysis
-	correlation_matrix = engineered_dataset.corr().abs()
-
-	upper = correlation_matrix.where( np.triu( np.ones( correlation_matrix.shape ), k = 1).astype( bool ) )
-
-	to_drop = set()
-
-	target_column = get_target_column( dataset_id )
-
-	for col1 in upper.columns:
-		if col1 != target_column:
-			for col2 in upper.index:
-				if col2 != target_column:
-					if upper.loc[ col2, col1 ] > correlation_acceptance_threshold:
-						# Determine which column to drop: the one with the lower relationship with the target column
-						relationship_with_target = {
-							col1: upper.loc[ col1, target_column ],
-						  	col2: upper.loc[ col2, target_column ]
-						}
-						col_to_drop = min( relationship_with_target, key = relationship_with_target.get )
-						to_drop.add( col_to_drop )
-
-	engineered_dataset = engineered_dataset.drop( columns = list( to_drop ) )
-
-	if not train or verbose:
-		print_message( f"Correlation analysis on dataset #{dataset_id}, removing {len(to_drop)} column/s: {sorted(to_drop)}" )
-
-	# Identify categorical columns for one-hot encoding (excluding target)
-	categorical_cols_to_encode = []
-
-	for col in engineered_dataset.columns:
-		if col != target_column and get_column_metadata( dataset_id, col, "order" ) is None:
-			unique_values = engineered_dataset[ col ].nunique()
-
-			if unique_values < max_ohe_unique_values and unique_values > 2: # Check for less than 10 unique values
-				categorical_cols_to_encode.append( ( col, unique_values ) )
-
-	categorical_cols_to_encode.sort( key = lambda item: item[0] )
-
-	if categorical_cols_to_encode:
-		message = ""
-		columns = []
-
-		for col in categorical_cols_to_encode:
-			columns.append( col[0] )
-			message += ( ", " if message else "" ) + f"{col[0]} ({col[1]} valores únicos)"
-
-		if not train or verbose:
-			print_message( f"One-hot encoding on dataset #{dataset_id}, {len(categorical_cols_to_encode)} column/s: {message}" )
-
-		engineered_dataset = pd.get_dummies( engineered_dataset, columns = columns, dummy_na = False ) # dummy_na=False to not create a column for NaN
-
-	# Drop duplicate rows
-	engineered_dataset = engineered_dataset.drop_duplicates()
-
-	if not train or verbose:
-		print_message( f"Dataset #{dataset_id} dimension modification after engineering from {preprocessed_dataset.shape} to {engineered_dataset.shape}.")
-
-	column_renamer = lambda x: re.sub( "[^A-Za-z0-9_]+", "_", x )
-	engineered_dataset = engineered_dataset.rename( columns = column_renamer )
-	unprocessed_dataset = unprocessed_dataset.rename( columns = column_renamer )
-
-	if validate:
-		# Separating for validation
-		if target_column is not None:
-			target_column = column_renamer( target_column )
-
+		if target_column:
 			X = engineered_dataset.drop( target_column, axis = 1 )
 			y = engineered_dataset[ target_column ]
 
-			X_train, X_validation, y_train, y_validation = train_test_split( X, y, test_size = validation_ratio, random_state = random_seed, stratify = y )
+			scaler.set_output( transform = "pandas" )
+			X_scaled = scaler.fit_transform( X )
 
-			engineered_dataset = pd.concat( [ X_train, pd.Series( y_train, name = target_column ) ], axis = 1 )
-			validation_dataset = pd.concat( [ X_validation, pd.Series( y_validation, name = target_column ) ], axis = 1 )
+			engineered_dataset = pd.concat( [ X_scaled, pd.Series( y, name = target_column ) ], axis = 1 )
 		else:
-			engineered_dataset, validation_dataset = train_test_split( engineered_dataset, test_size = validation_ratio, random_state = random_seed )
+			engineered_dataset[ engineered_dataset.columns ] = scaler.fit_transform( engineered_dataset[ engineered_dataset.columns ] )
 
-		if not train or verbose:
-			print_message( f"Engineered dataset: {engineered_dataset.shape}, Validation dataset: {validation_dataset.shape}" )
+		# Correlation analysis
+		correlation_matrix = engineered_dataset.corr().abs()
 
-	if target_column is not None:
-		target_column = column_renamer( target_column )
+		upper = correlation_matrix.where( np.triu( np.ones( correlation_matrix.shape ), k = 1).astype( bool ) )
 
-		# todo check Nan values
-		X = engineered_dataset.drop( target_column, axis = 1 )
-		y = engineered_dataset[ target_column ]
+		to_drop = set()
 
-		oversampling = len(y) < oversampling_threshold
-
-		if oversampling:
-			rs = SMOTE( random_state = random_seed )
-		else:
-			rs = RandomUnderSampler( random_state = random_seed )
-
-		X, y = rs.fit_resample( X, y )
-
-		balanced_dataset = pd.concat( [ X, pd.Series( y, name = target_column ) ], axis = 1 )
-
-		if not train or verbose:
-			print_message( f"Dataset #{dataset_id} dimension modification after balancing from {engineered_dataset.shape} to {balanced_dataset.shape}.")
-
-	if train:
-		if target_column is None:
-			print_message( "No target column. Skipping supervised analysis." )
-			pass
-		else:
-			match pycaret:
-				case 'only_training':
-					experiments_settings = {
-						"Pycaret only training" : {
-							"dataset" : balanced_dataset,
-							"pycaret_setup_args" : {
-								"preprocess" : False
+		for col1 in upper.columns:
+			if col1 != target_column:
+				for col2 in upper.index:
+					if col2 != target_column:
+						if upper.loc[ col2, col1 ] > correlation_acceptance_threshold:
+							# Determine which column to drop: the one with the lower relationship with the target column
+							relationship_with_target = {
+								col1: upper.loc[ col1, target_column ],
+								col2: upper.loc[ col2, target_column ]
 							}
-						},
-						"Pycaret only training and tuning" : {
-							"dataset" : balanced_dataset,
-							"tune" : True,
-							"pycaret_setup_args" : {
-								"preprocess" : False
+							col_to_drop = min( relationship_with_target, key = relationship_with_target.get )
+							to_drop.add( col_to_drop )
+
+		engineered_dataset = engineered_dataset.drop( columns = list( to_drop ) )
+
+		if print_preprocessing:
+			print_message( f"Correlation analysis on dataset #{dataset_id}, removing {len(to_drop)} column/s: {sorted(to_drop)}" )
+
+		# Identify categorical columns for one-hot encoding (excluding target)
+		categorical_cols_to_encode = []
+
+		for col in engineered_dataset.columns:
+			if col != target_column and get_column_metadata( dataset_id, col, "order" ) is None:
+				unique_values = engineered_dataset[ col ].nunique()
+
+				if unique_values < max_ohe_unique_values and unique_values > 2: # Check for less than 10 unique values
+					categorical_cols_to_encode.append( ( col, unique_values ) )
+
+		categorical_cols_to_encode.sort( key = lambda item: item[0] )
+
+		if categorical_cols_to_encode:
+			message = ""
+			columns = []
+
+			for col in categorical_cols_to_encode:
+				columns.append( col[0] )
+				message += ( ", " if message else "" ) + f"{col[0]} ({col[1]} valores únicos)"
+
+			if print_preprocessing:
+				print_message( f"One-hot encoding on dataset #{dataset_id}, {len(categorical_cols_to_encode)} column/s: {message}" )
+
+			engineered_dataset = pd.get_dummies( engineered_dataset, columns = columns, dummy_na = False ) # dummy_na=False to not create a column for NaN
+
+		# Drop duplicate rows
+		engineered_dataset = engineered_dataset.drop_duplicates()
+
+		if print_preprocessing:
+			print_message( f"Dataset #{dataset_id} dimension modification after engineering from {preprocessed_dataset.shape} to {engineered_dataset.shape}.")
+
+		column_renamer = lambda x: re.sub( "[^A-Za-z0-9_]+", "_", x )
+		engineered_dataset = engineered_dataset.rename( columns = column_renamer )
+		unprocessed_dataset = unprocessed_dataset.rename( columns = column_renamer )
+
+		if validate:
+			# Separating for validation
+			if target_column is not None:
+				target_column = column_renamer( target_column )
+
+				X = engineered_dataset.drop( target_column, axis = 1 )
+				y = engineered_dataset[ target_column ]
+
+				X_train, X_validation, y_train, y_validation = train_test_split( X, y, test_size = validation_ratio, random_state = random_seed, stratify = y )
+
+				if ( y_validation.value_counts().min() > 1 ):
+					engineered_dataset = pd.concat( [ X_train, pd.Series( y_train, name = target_column ) ], axis = 1 )
+					validation_dataset = pd.concat( [ X_validation, pd.Series( y_validation, name = target_column ) ], axis = 1 )
+			else:
+				engineered_dataset, validation_dataset = train_test_split( engineered_dataset, test_size = validation_ratio, random_state = random_seed )
+
+			if print_preprocessing and validation_dataset is not None:
+				print_message( f"Engineered dataset: {engineered_dataset.shape}, Validation dataset: {validation_dataset.shape}" )
+
+		if target_column is not None:
+			target_column = column_renamer( target_column )
+
+			# todo check Nan values
+			X = engineered_dataset.drop( target_column, axis = 1 )
+			y = engineered_dataset[ target_column ]
+
+			oversampling = len(y) < oversampling_threshold
+
+			if oversampling:
+				rs = SMOTE( random_state = random_seed )
+			else:
+				rs = RandomUnderSampler( random_state = random_seed )
+
+			X, y = rs.fit_resample( X, y )
+
+			balanced_dataset = pd.concat( [ X, pd.Series( y, name = target_column ) ], axis = 1 )
+
+			if print_preprocessing:
+				print_message( f"Dataset #{dataset_id} dimension modification after balancing from {engineered_dataset.shape} to {balanced_dataset.shape}.")
+
+		if train:
+			if target_column is None:
+				print_message( "No target column. Skipping supervised analysis." )
+				pass
+			else:
+				match pycaret:
+					case "only_training":
+						experiments_settings = {
+							"Pycaret only training" : {
+								"dataset" : balanced_dataset,
+								"pycaret_setup_args" : {
+									"preprocess" : False
+								}
+							},
+							"Pycaret only training and tuning" : {
+								"dataset" : balanced_dataset,
+								"tune" : True,
+								"pycaret_setup_args" : {
+									"preprocess" : False
+								}
 							}
 						}
-					}
-				case 'complete':
-					experiments_settings = {
-						"Pycaret" : {
-							"dataset" : unprocessed_dataset,
-							"pycaret_setup_args" : {
-								"preprocess" : True
-							}
-						},
-						"Pycaret with normalization" : {
-							"dataset" : unprocessed_dataset,
-							"pycaret_setup_args" : {
-								"normalize" : True
-							}
-						},
-						"Pycaret with balancing" : {
-							"dataset" : unprocessed_dataset,
-							"pycaret_setup_args" : {
-								"fix_imbalance" : True
-							}
-						},
-						"Pycaret with normalization and balancing" : {
-							"dataset" : unprocessed_dataset,
-							"pycaret_setup_args" : {
-								"normalize" : True,
-								"fix_imbalance" : True
-							}
-						},
-						"Pycaret with normalization, balancing and tuning" : {
-							"dataset" : unprocessed_dataset,
-							"tune" : True,
-							"pycaret_setup_args" : {
-								"normalize" : True,
-								"fix_imbalance" : True
+					case "complete":
+						experiments_settings = {
+							"Pycaret" : {
+								"dataset" : unprocessed_dataset,
+								"pycaret_setup_args" : {
+									"preprocess" : True
+								}
+							},
+							"Pycaret with normalization" : {
+								"dataset" : unprocessed_dataset,
+								"pycaret_setup_args" : {
+									"normalize" : True
+								}
+							},
+							"Pycaret with balancing" : {
+								"dataset" : unprocessed_dataset,
+								"pycaret_setup_args" : {
+									"fix_imbalance" : True
+								}
+							},
+							"Pycaret with normalization and balancing" : {
+								"dataset" : unprocessed_dataset,
+								"pycaret_setup_args" : {
+									"normalize" : True,
+									"fix_imbalance" : True
+								}
+							},
+							"Pycaret with normalization, balancing and tuning" : {
+								"dataset" : unprocessed_dataset,
+								"tune" : True,
+								"pycaret_setup_args" : {
+									"normalize" : True,
+									"fix_imbalance" : True
+								}
 							}
 						}
-					}
-				case _:
-					experiments_settings = {
-						"Custom" : {
-							"dataset" : balanced_dataset,
-						},
-						"Custom with tuning" : {
-							"dataset" : balanced_dataset,
-							"tune" : True,
-						},
-					}
+					case _:
+						experiments_settings = {
+							"Custom" : {
+								"dataset" : balanced_dataset,
+							},
+							"Custom with tuning" : {
+								"dataset" : balanced_dataset,
+								"tune" : True,
+							},
+						}
 
-			for key, value in experiments_settings.items():
-				if experiment( key, value.get( "dataset" ), tune = value.get( "tune", False ), validation_dataset = validation_dataset if validate else None, **value.get( "pycaret_setup_args", {} ) ):
-					break
+				for key, value in experiments_settings.items():
+					if experiment( key, value.get( "dataset" ), tune = value.get( "tune", False ), validation_dataset = validation_dataset if validate else None, **value.get( "pycaret_setup_args", {} ) ):
+						if not force_tuning:
+							break
+
+print_message( "Finished." )
