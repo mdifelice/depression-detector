@@ -196,7 +196,7 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 
 						if param_grids:
 							for param_grid in param_grids:
-								cv = KFold( random_state = random_seed, shuffle = True )
+								cv = KFold( random_state = random_seed, shuffle = True, n_splits = cross_validation_tune_folds )
 
 								if tune_iterations:
 									search = RandomizedSearchCV( model, param_grid, n_iter = tune_iterations, cv = cv, scoring = tune_scoring, random_state = random_seed, verbose = 0 if not debug else 4, n_jobs = None if not turbo else -1 )
@@ -276,6 +276,7 @@ correlation_acceptance_threshold = .6
 oversampling_threshold = 0
 tune_iterations = 10
 cross_validation_folds = 5
+cross_validation_tune_folds = 5
 tune_scoring = "f1"
 force_tuning = False
 train = False
@@ -306,6 +307,10 @@ available_options = {
 	"f" : {
 		"variable" : "force_tuning",
 	},
+	"i" : {
+		"variable" : "cross_validation_tune_folds",
+		"has_value" : int,
+	},
 	"m" : {
 		"has_value" : lambda x: list( map( str.strip, x.split( "," ) ) ),
 		"variable" : "selected_models",
@@ -334,6 +339,10 @@ available_options = {
 	},
 	"u" : {
 		"variable" : "unsupervised",
+	},
+	"v" : {
+		"variable" : "cross_validation_folds",
+		"has_value" : int,
 	},
 	"w" : {
 		"variable" : "random_seed",
