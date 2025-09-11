@@ -44,28 +44,45 @@ def get_target_column( dataset_id ):
 	return target_column
 
 def get_formatted_metrics( metrics ):
-	return "\033[" + ( "32" if metrics_are_successful( metrics ) else "31" ) + "m" + f"F1 {metrics["F1"]:.4f}, AUC {metrics["AUC"]:.4f}, Accuracy {metrics["Accuracy"]:.4f}, Precision {metrics["Prec."]:.4f}, Recall {metrics["Recall"]:.4f}" + f", TT {metrics["TT (Sec)"]:.4f}" + "\033[0m"
+	message = ""
+
+	for key, value in metrics.items():
+		message += ( ", " if message else "" ) + f"{key} {value:.4}"
+
+	return "\033[" + ( "32" if metrics_are_successful( metrics ) else "31" ) + "m" + message + "\033[0m"
 
 def get_current_time():
 	return time.time()
 
 def get_model_metrics( model, X, y, time = None ):
-	min_cv_folds = y.value_counts().min()
 	metrics = pd.Series()
+	cv_time = 0
 
 	try:
-		scores = cross_validate( model, X, y, cv = cross_validation_folds if cross_validation_folds <= min_cv_folds else min_cv_folds, scoring = [ "f1", "roc_auc", "accuracy", "precision", "recall" ], error_score = 'raise' )
+		if unsupervised:
+			y = model.predict( X )
 
-		cv_time = sum( scores["fit_time"] )
+			metrics.loc["Silhouette"] = silhouette_score( X, y )
+			metrics.loc["DBI"] = davies_bouldin_score( X, y )
+			metrics.loc["Calinski-Harabasz"] = calinski_harabasz_score( X, y )
+			metrics.loc["T-Test"] = 0
+		else:
+			min_cv_folds = y.value_counts().min()
 
-		metrics.loc["F1"] = scores["test_f1"].mean()
-		metrics.loc["AUC"] = scores["test_roc_auc"].mean()
-		metrics.loc["Accuracy"] = scores["test_accuracy"].mean()
-		metrics.loc["Prec."] = scores["test_precision"].mean()
-		metrics.loc["Recall"] = scores["test_recall"].mean()
-		metrics.loc["TT (Sec)"] = time + cv_time if time else cv_time
+			scores = cross_validate( model, X, y, cv = cross_validation_folds if cross_validation_folds <= min_cv_folds else min_cv_folds, scoring = [ "f1", "roc_auc", "accuracy", "precision", "recall" ], error_score = 'raise' )
+
+			cv_time = sum( scores["fit_time"] )
+
+			metrics.loc["F1"] = scores["test_f1"].mean()
+			metrics.loc["AUC"] = scores["test_roc_auc"].mean()
+			metrics.loc["Accuracy"] = scores["test_accuracy"].mean()
+			metrics.loc["Prec."] = scores["test_precision"].mean()
+			metrics.loc["Recall"] = scores["test_recall"].mean()
 	except Exception as e:
-		pass
+		if debug:
+			print_message( f"Error retrieving metrics for {model.__class__.__name__}: {e}" )
+
+	metrics.loc["TT (Sec)"] = time + cv_time if time else cv_time
 
 	return metrics
 
@@ -80,27 +97,33 @@ def expand_model_names( model_names ):
 	return expanded_model_names
 
 def metrics_are_successful( metrics ):
-	return metrics["F1"] >= f1_acceptance_threshold
+	metric = None
+
+	match tune_scoring:
+		case "f1":
+			metric = "F1"
+		case "silhouette_score":
+			metric = "Silhouette"
+
+	return metrics[ metric ] >= metric_acceptance_threshold if metric else False
 
 def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 	success = False
+	metrics = pd.DataFrame()
 
-	if ( unsupervised ):
-		pass
-		#todo
-	else:
-		print_message( title + "...", eol = False )
+	print_message( title + "...", eol = False )
 
-		metrics = pd.DataFrame()
+	if not debug:
+		original_stdout = sys.stdout
+		original_stderr = sys.stderr
 
-		if not debug:
-			original_stdout = sys.stdout
-			original_stderr = sys.stderr
+		sys.stdout = open( os.devnull, "w" )
+		sys.stderr = open( os.devnull, "w" )
 
-			sys.stdout = open( os.devnull, "w" )
-			sys.stderr = open( os.devnull, "w" )
-
-		if pycaret_setup_args:
+	if pycaret_setup_args:
+		if unsupervised:
+			print_message( "No unsupervised support for PyCaret" )
+		else:
 			setup(
 				data = dataset,
 				target = target_column,
@@ -160,107 +183,119 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 					model_metrics.name = model
 
 					metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
+	else:
+		if unsupervised:
+			X_train = dataset
+			y_train = None
+
+			X_test = dataset
+			y_test = None
 		else:
 			X = dataset.drop( target_column, axis = 1 )
 			y = dataset[ target_column ]
 
 			X_train, X_test, y_train, y_test = train_test_split( X, y, test_size = test_ratio, random_state = random_seed, stratify = y )
 
-			for model_name, settings in available_models.items():
-				if model_name in selected_models:
-					module_name, class_name = model_name.rsplit( ".", 1 )
+		for model_name, settings in available_models.items():
+			if model_name in selected_models:
+				module_name, class_name = model_name.rsplit( ".", 1 )
 
-					module = importlib.import_module( module_name )
+				module = importlib.import_module( module_name )
 
-					constructor_settings = settings.get( "constructor", {} )
+				constructor_settings = settings.get( "constructor", {} )
 
-					args = constructor_settings.get( "arguments", {} )
+				args = constructor_settings.get( "arguments", {} )
 
-					if constructor_settings.get( "random_state" ):
-						args["random_state"] = random_seed
+				if constructor_settings.get( "random_state" ):
+					args["random_state"] = random_seed
 
-					model = getattr( module, class_name )( **args )
+				start_time = get_current_time()
 
-					start_time = get_current_time()
+				model = getattr( module, class_name )( **args )
 
-					if tune:
-						param_grids = settings.get( "param_grids" )
+				if tune:
+					param_grids = settings.get( "param_grids" )
 
-						if not param_grids:
-							param_grid = settings.get( "param_grid" )
+					if not param_grids:
+						param_grid = settings.get( "param_grid" )
 
-							if param_grid:
-								param_grids = []
+						if param_grid:
+							param_grids = []
 
-								param_grids.append( param_grid )
+							param_grids.append( param_grid )
 
-						if param_grids:
-							for param_grid in param_grids:
-								cv = KFold( random_state = random_seed, shuffle = True, n_splits = cross_validation_tune_folds )
+					if param_grids:
+						for param_grid in param_grids:
+							cv = KFold( random_state = random_seed, shuffle = True, n_splits = cross_validation_tune_folds )
 
-								if tune_iterations:
-									search = RandomizedSearchCV( model, param_grid, n_iter = tune_iterations, cv = cv, scoring = tune_scoring, random_state = random_seed, verbose = 0 if not debug else 4, n_jobs = None if not turbo else -1 )
-								else:
-									search = GridSearchCV( model, param_grid, cv = cv, scoring = tune_scoring, verbose = 0 if not debug else 4, n_jobs = None if not turbo else -1 )
+							if tune_iterations:
+								search = RandomizedSearchCV( model, param_grid, n_iter = tune_iterations, cv = cv, scoring = tune_scoring, random_state = random_seed, verbose = 0 if not debug else 4, n_jobs = None if not turbo else -1 )
+							else:
+								search = GridSearchCV( model, param_grid, cv = cv, scoring = tune_scoring, verbose = 0 if not debug else 4, n_jobs = None if not turbo else -1 )
 
-								if ( debug ):
-									print_message( f"Fitting {model.__class__.__name__}..." )
+							if ( debug ):
+								print_message( f"Fitting {model.__class__.__name__}(param_grid)..." )
 
-								search.fit( X_train, y_train )
+							search.fit( X_train, y_train )
 
-								model = search.best_estimator_
-						else:
-							model = None
+							model = search.best_estimator_
 					else:
-						if ( debug ):
-							print_message( f"Fitting {model.__class__.__name__}..." )
+						model = None
+				else:
+					if ( debug ):
+						print_message( f"Fitting {model.__class__.__name__}..." )
 
-						model.fit( X_train, y_train )
+					model.fit( X_train, y_train )
 
-					if model:
-						model_metrics = get_model_metrics( model, X_test, y_test, get_current_time() - start_time )
-						model_metrics.name = model
+				if model:
+					model_metrics = get_model_metrics( model, X_test, y_test, get_current_time() - start_time )
+					model_metrics.name = model.__class__.__name__
 
-						metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
+					metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
 
-		if not debug:
-			sys.stdout = original_stdout
-			sys.stderr = original_stderr
+	if not debug:
+		sys.stdout = original_stdout
+		sys.stderr = original_stderr
 
-		best_model = None
+	best_model = None
 
-		if metrics.empty:
-			message = " No metrics found."
+	if metrics.empty:
+		message = " No metrics found."
+	else:
+		best_model_index = 0
+		models_to_print = {}
+		max_value = 0
+
+		if unsupervised:
+			sort_by = "Calinski-Harabasz"
 		else:
-			best_model_index = 0
-			max_auc = 0
-			models_to_print = {}
+			sort_by = "AUC"
 
-			metrics.sort_values( by = "AUC", ascending = False, inplace = True )
+		metrics.sort_values( by = sort_by, ascending = False, inplace = True )
 
-			for index in range( len( metrics ) ):
-				if print_all:
-					models_to_print[ metrics.index[ index ] ] = metrics.iloc[ index ]
+		for index in range( len( metrics ) ):
+			if print_all:
+				models_to_print[ metrics.index[ index ] ] = metrics.iloc[ index ]
 
-				model_metrics = metrics.iloc[ index ]
+			model_metrics = metrics.iloc[ index ]
 
-				if metrics_are_successful( model_metrics ):
-					success = True
+			if metrics_are_successful( model_metrics ):
+				success = True
 
-					if model_metrics["AUC"] > max_auc:
-						max_auc = model_metrics["AUC"]
-						best_model_index = index
+				if model_metrics[ sort_by ] > max_value:
+					max_value = model_metrics[ sort_by ]
+					best_model_index = index
 
-			message = ""
-			best_model = metrics.index[ best_model_index ]
+		message = ""
+		best_model = metrics.index[ best_model_index ]
 
-			if not print_all:
-				models_to_print[ metrics.index[ best_model_index ] ] = metrics.iloc[ best_model_index ]
+		if not print_all:
+			models_to_print[ metrics.index[ best_model_index ] ] = metrics.iloc[ best_model_index ]
 
-			for model, model_metrics in models_to_print.items():
-				message += ( " " if len( models_to_print ) == 1 else "\n" ) + f"{model.__class__.__name__}: {get_formatted_metrics( model_metrics )}"
+		for model, model_metrics in models_to_print.items():
+			message += ( " " if len( models_to_print ) == 1 else "\n" ) + f"{model}: {get_formatted_metrics( model_metrics )}"
 
-		print_message( message, timestamp = False )
+	print_message( message, timestamp = False )
 
 	return success
 
@@ -271,13 +306,11 @@ test_ratio = .3
 row_acceptance_threshold = .75
 column_acceptance_threshold = .25
 max_ohe_unique_values = 10
-f1_acceptance_threshold = .7
 correlation_acceptance_threshold = .6
 oversampling_threshold = 0
 tune_iterations = 10
 cross_validation_folds = 5
 cross_validation_tune_folds = 5
-tune_scoring = "f1"
 force_tuning = False
 train = False
 pycaret = None
@@ -375,7 +408,7 @@ with open( get_file_path( "metadata.json" ) ) as metadata_file:
 	metadata = json.load( metadata_file )
 	metadata_file.close()
 
-available_models = get_metadata_setting( "supervised_algorithms", {} )
+available_models = get_metadata_setting( "unsupervised_algorithms" if unsupervised else "supervised_algorithms", {} )
 
 if selected_models is None:
 	selected_models = list( available_models.keys() )
@@ -388,6 +421,13 @@ if excluded_models:
 	for model in excluded_models:
 		if model in selected_models:
 			selected_models.remove( model )
+
+if unsupervised:
+	tune_scoring = "silhouette_score"
+	metric_acceptance_threshold = .7
+else:
+	tune_scoring = "f1"
+	metric_acceptance_threshold = .7
 
 for dataset_id in selected_datasets:
 	dataset = None
@@ -441,8 +481,17 @@ for dataset_id in selected_datasets:
 		columns_to_remove = []
 
 		for col in preprocessed_dataset.columns:
-			if ( col != target_column and preprocessed_dataset[ col ].isnull().sum() / len( preprocessed_dataset[ col ] ) ) > column_acceptance_threshold:
-				columns_to_remove.append( col )
+			column_to_remove = None
+
+			if col != target_column and preprocessed_dataset[ col ].isnull().sum() / len( preprocessed_dataset[ col ] ) > column_acceptance_threshold:
+				column_to_remove = col
+			elif col == target_column and unsupervised:
+				column_to_remove = col
+
+				target_column = None
+
+			if column_to_remove:
+				columns_to_remove.append( column_to_remove )
 
 		preprocessed_dataset = (
 			preprocessed_dataset
@@ -598,83 +647,81 @@ for dataset_id in selected_datasets:
 
 			X, y = rs.fit_resample( X, y )
 
-			balanced_dataset = pd.concat( [ X, pd.Series( y, name = target_column ) ], axis = 1 )
+			processed_dataset = pd.concat( [ X, pd.Series( y, name = target_column ) ], axis = 1 )
 
 			if print_preprocessing:
-				print_message( f"Dataset #{dataset_id} dimension modification after balancing from {engineered_dataset.shape} to {balanced_dataset.shape}.")
+				print_message( f"Dataset #{dataset_id} dimension modification after balancing from {engineered_dataset.shape} to {processed_dataset.shape}.")
+		else:
+			processed_dataset = engineered_dataset
 
 		if train:
-			if target_column is None:
-				print_message( "No target column. Skipping supervised analysis." )
-				pass
-			else:
-				match pycaret:
-					case "only_training":
-						experiments_settings = {
-							"Pycaret only training" : {
-								"dataset" : balanced_dataset,
-								"pycaret_setup_args" : {
-									"preprocess" : False
-								}
-							},
-							"Pycaret only training and tuning" : {
-								"dataset" : balanced_dataset,
-								"tune" : True,
-								"pycaret_setup_args" : {
-									"preprocess" : False
-								}
+			match pycaret:
+				case "only_training":
+					experiments_settings = {
+						"Pycaret only training" : {
+							"dataset" : processed_dataset,
+							"pycaret_setup_args" : {
+								"preprocess" : False
+							}
+						},
+						"Pycaret only training and tuning" : {
+							"dataset" : processed_dataset,
+							"tune" : True,
+							"pycaret_setup_args" : {
+								"preprocess" : False
 							}
 						}
-					case "complete":
-						experiments_settings = {
-							"Pycaret" : {
-								"dataset" : unprocessed_dataset,
-								"pycaret_setup_args" : {
-									"preprocess" : True
-								}
-							},
-							"Pycaret with normalization" : {
-								"dataset" : unprocessed_dataset,
-								"pycaret_setup_args" : {
-									"normalize" : True
-								}
-							},
-							"Pycaret with balancing" : {
-								"dataset" : unprocessed_dataset,
-								"pycaret_setup_args" : {
-									"fix_imbalance" : True
-								}
-							},
-							"Pycaret with normalization and balancing" : {
-								"dataset" : unprocessed_dataset,
-								"pycaret_setup_args" : {
-									"normalize" : True,
-									"fix_imbalance" : True
-								}
-							},
-							"Pycaret with normalization, balancing and tuning" : {
-								"dataset" : unprocessed_dataset,
-								"tune" : True,
-								"pycaret_setup_args" : {
-									"normalize" : True,
-									"fix_imbalance" : True
-								}
+					}
+				case "complete":
+					experiments_settings = {
+						"Pycaret" : {
+							"dataset" : unprocessed_dataset,
+							"pycaret_setup_args" : {
+								"preprocess" : True
+							}
+						},
+						"Pycaret with normalization" : {
+							"dataset" : unprocessed_dataset,
+							"pycaret_setup_args" : {
+								"normalize" : True
+							}
+						},
+						"Pycaret with balancing" : {
+							"dataset" : unprocessed_dataset,
+							"pycaret_setup_args" : {
+								"fix_imbalance" : True
+							}
+						},
+						"Pycaret with normalization and balancing" : {
+							"dataset" : unprocessed_dataset,
+							"pycaret_setup_args" : {
+								"normalize" : True,
+								"fix_imbalance" : True
+							}
+						},
+						"Pycaret with normalization, balancing and tuning" : {
+							"dataset" : unprocessed_dataset,
+							"tune" : True,
+							"pycaret_setup_args" : {
+								"normalize" : True,
+								"fix_imbalance" : True
 							}
 						}
-					case _:
-						experiments_settings = {
-							"Custom" : {
-								"dataset" : balanced_dataset,
-							},
-							"Custom with tuning" : {
-								"dataset" : balanced_dataset,
-								"tune" : True,
-							},
-						}
+					}
+				case _:
+					experiments_settings = {
+						"Custom" : {
+							"dataset" : processed_dataset,
+						},
+						"Custom with tuning" : {
+							"dataset" : processed_dataset,
+							"tune" : True,
+						},
+					}
 
-				for key, value in experiments_settings.items():
-					if experiment( key, value.get( "dataset" ), tune = value.get( "tune", False ), **value.get( "pycaret_setup_args", {} ) ):
-						if not force_tuning:
-							break
+			for key, value in experiments_settings.items():
+				if experiment( key, value.get( "dataset" ), tune = value.get( "tune", False ), **value.get( "pycaret_setup_args", {} ) ):
+					if not force_tuning:
+						break
 
 print_message( "Finished." )
