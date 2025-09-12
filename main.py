@@ -4,9 +4,11 @@ from getopt import getopt
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
 from pycaret.classification import *
+from scipy.stats import ttest_ind
 from sklearn.metrics import *
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, KFold, train_test_split, cross_validate
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import *
+from typing import Callable
 import importlib
 import json
 import numpy as np
@@ -54,35 +56,96 @@ def get_formatted_metrics( metrics ):
 def get_current_time():
 	return time.time()
 
+def get_p_values( dataset_1, dataset_2 ):
+	t_stats = {}
+	p_values = {}
+
+	for column in dataset_1:
+		t_stats[ column ] = {}
+		p_values[ column ] = None
+
+		if pd.api.types.is_numeric_dtype( dataset_1[ column ] ) and pd.api.types.is_numeric_dtype( dataset_2[ column ] ):
+			_, p_value = ttest_ind( dataset_1[ column ], dataset_2[ column ] )
+
+			p_values[ column ] = p_value
+
+	return p_values
+
+def t_test( clusters ):
+	count_p_values = 0
+	good_p_values = 0
+	columns_to_check = clusters[0].columns
+
+	for i in range( len( clusters ) ):
+		for j in range( len( clusters ) ):
+			if j > i:
+				cluster_1 = clusters[ i ]
+				cluster_2 = clusters[ j ]
+
+				p_values = get_p_values( cluster_1, cluster_2 )
+
+				for column in columns_to_check:
+					if column in p_values:
+						count_p_values += 1
+					
+					try:
+						if p_values[ column ] < 0.05:
+							good_p_values += 1
+					except:
+						continue
+
+	return good_p_values / count_p_values if count_p_values != 0 else .0
+
 def get_model_metrics( model, X, y, time = None ):
 	metrics = pd.Series()
-	cv_time = 0
+	cb_time = 0
+
+	if unsupervised:
+		before_callback = lambda : model.predict( X )
+		metrics_to_calculate = {
+			"Silhouette" : lambda y : silhouette_score( X, y ),
+			"DBI" : lambda y : davies_bouldin_score( X, y ),
+			"Calinski-Harabasz" : lambda y : calinski_harabasz_score( X, y ),
+			"T-Test" : t_test
+		}
+		after_callback = None
+	else:
+		min_cv_folds = y.value_counts().min()
+
+		before_callback = lambda : cross_validate( model, X, y, cv = cross_validation_folds if cross_validation_folds <= min_cv_folds else min_cv_folds, scoring = [ "f1", "roc_auc", "accuracy", "precision", "recall" ], error_score = 'raise' )
+
+		after_callback = lambda scores : sum( scores["fit_time"] )
+		metrics_to_calculate = {
+			"F1" : lambda scores : scores["test_f1"].mean(),
+			"AUC" : lambda scores : scores["test_roc_auc"].mean(),
+			"Accuracy" : lambda scores : scores["test_accuracy"].mean(),
+			"Prec." : lambda scores : scores["test_precision"].mean(),
+			"Recall" : lambda scores : scores["test_recall"].mean(),
+		}
+
+	for metric in metrics_to_calculate:
+		metrics.loc[ metric ] = .0
 
 	try:
-		if unsupervised:
-			y = model.predict( X )
+		before_response = before_callback()
 
-			metrics.loc["Silhouette"] = silhouette_score( X, y )
-			metrics.loc["DBI"] = davies_bouldin_score( X, y )
-			metrics.loc["Calinski-Harabasz"] = calinski_harabasz_score( X, y )
-			metrics.loc["T-Test"] = 0
-		else:
-			min_cv_folds = y.value_counts().min()
+		for metric, callback in metrics_to_calculate.items():
+			value = None
 
-			scores = cross_validate( model, X, y, cv = cross_validation_folds if cross_validation_folds <= min_cv_folds else min_cv_folds, scoring = [ "f1", "roc_auc", "accuracy", "precision", "recall" ], error_score = 'raise' )
+			try:
+				value = callback( before_response )
+			except Exception as e:
+				if debug:
+					print_message( f"Error retrieving metric {metric} for {model.__class__.__name__}: {e}" )
 
-			cv_time = sum( scores["fit_time"] )
+			metrics.loc[ metric ] = value
 
-			metrics.loc["F1"] = scores["test_f1"].mean()
-			metrics.loc["AUC"] = scores["test_roc_auc"].mean()
-			metrics.loc["Accuracy"] = scores["test_accuracy"].mean()
-			metrics.loc["Prec."] = scores["test_precision"].mean()
-			metrics.loc["Recall"] = scores["test_recall"].mean()
+			cb_time = after_callback( before_response ) if after_callback else .0
 	except Exception as e:
 		if debug:
 			print_message( f"Error retrieving metrics for {model.__class__.__name__}: {e}" )
 
-	metrics.loc["TT (Sec)"] = time + cv_time if time else cv_time
+	metrics.loc["TT (Sec)"] = time + cb_time if time else cb_time
 
 	return metrics
 
@@ -111,7 +174,7 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 	success = False
 	metrics = pd.DataFrame()
 
-	print_message( title + "...", eol = False )
+	print_message( title + "...", eol = debug )
 
 	if not debug:
 		original_stdout = sys.stdout
@@ -129,7 +192,7 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 				target = target_column,
 				session_id = random_seed,
 				train_size = 1 - test_ratio,
-				verbose = debug,
+				verbose = debug > 1,
 				**pycaret_setup_args
 			)
 
@@ -145,11 +208,11 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 						model = tune_model(
 							create_model(
 								pycaret_available_models.index[ index ],
-								verbose = debug
+								verbose = debug > 1
 							),
 							optimize = tune_scoring,
 							n_iter = tune_iterations,
-							verbose = debug
+							verbose = debug > 1
 						)
 
 						model_metrics = pull().loc["Mean"]
@@ -167,7 +230,7 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 						selected_models_ids.append( pycaret_available_models.index[ index ] )
 
 				compare_models(
-					verbose = debug,
+					verbose = debug > 1,
 					include = selected_models_ids
 				)
 
@@ -176,7 +239,7 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 				for index in range( len( models_metrics ) ):
 					model = create_model( 
 						models_metrics.index[ index ],
-						verbose = debug
+						verbose = debug > 1
 					)
 
 					model_metrics = models_metrics.iloc[ index ]
@@ -228,13 +291,19 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 						for param_grid in param_grids:
 							cv = KFold( random_state = random_seed, shuffle = True, n_splits = cross_validation_tune_folds )
 
+							match tune_scoring:
+								case 'silhouette_score':
+									cv_scoring = make_scorer( silhouette_score )
+								case _:
+									cv_scoring = tune_scoring
+
 							if tune_iterations:
-								search = RandomizedSearchCV( model, param_grid, n_iter = tune_iterations, cv = cv, scoring = tune_scoring, random_state = random_seed, verbose = 0 if not debug else 4, n_jobs = None if not turbo else -1 )
+								search = RandomizedSearchCV( model, param_grid, n_iter = tune_iterations, cv = cv, scoring = cv_scoring, random_state = random_seed, verbose = 0 if debug < 2 else 4, n_jobs = None if not turbo else -1 )
 							else:
-								search = GridSearchCV( model, param_grid, cv = cv, scoring = tune_scoring, verbose = 0 if not debug else 4, n_jobs = None if not turbo else -1 )
+								search = GridSearchCV( model, param_grid, cv = cv, scoring = cv_scoring, verbose = 0 if debug < 2 else 4, n_jobs = None if not turbo else -1 )
 
 							if ( debug ):
-								print_message( f"Fitting {model.__class__.__name__}(param_grid)..." )
+								print_message( f"Fitting {model.__class__.__name__}..." )
 
 							search.fit( X_train, y_train )
 
@@ -249,7 +318,7 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 
 				if model:
 					model_metrics = get_model_metrics( model, X_test, y_test, get_current_time() - start_time )
-					model_metrics.name = model.__class__.__name__
+					model_metrics.name = model
 
 					metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
 
@@ -260,7 +329,7 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 	best_model = None
 
 	if metrics.empty:
-		message = " No metrics found."
+		message = "No metrics found."
 	else:
 		best_model_index = 0
 		models_to_print = {}
@@ -293,9 +362,9 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 			models_to_print[ metrics.index[ best_model_index ] ] = metrics.iloc[ best_model_index ]
 
 		for model, model_metrics in models_to_print.items():
-			message += ( " " if len( models_to_print ) == 1 else "\n" ) + f"{model}: {get_formatted_metrics( model_metrics )}"
+			message += ( "" if len( models_to_print ) == 1 else "\n" ) + f"{model if debug else model.__class__.__name__}: {get_formatted_metrics( model_metrics )}"
 
-	print_message( message, timestamp = False )
+	print_message( ( "" if debug else " " ) + message, timestamp = debug )
 
 	return success
 
@@ -322,6 +391,7 @@ selected_datasets = list( map( str, range( 1, 11 ) ) )
 selected_models = None
 excluded_models = None
 print_preprocessing = False
+scaler_type = "standard"
 
 available_options = {
 	"a" : {
@@ -336,6 +406,7 @@ available_options = {
 	},
 	"e" : {
 		"variable" : "debug",
+		"has_value" : int,
 	},
 	"f" : {
 		"variable" : "force_tuning",
@@ -343,6 +414,10 @@ available_options = {
 	"i" : {
 		"variable" : "cross_validation_tune_folds",
 		"has_value" : int,
+	},
+	"l" : {
+		"variable" : "scaler_type",
+		"has_value" : True
 	},
 	"m" : {
 		"has_value" : lambda x: list( map( str.strip, x.split( "," ) ) ),
@@ -389,20 +464,27 @@ available_options = {
 
 try:
 	options, extra_args = getopt( sys.argv[ 1: ], "".join( map( lambda x: x + ( ":" if available_options.get( x, {} ) .get( "has_value" ) else "" ), available_options.keys() ) ) )
+
+	for key, value in options:
+		option_settings = available_options.get( key[ 1: ], {} )
+
+		if option_settings:
+			variable = option_settings.get( "variable" )
+
+			if variable:
+				parser = option_settings.get( "has_value", lambda x: True )
+
+				if isinstance( parser, Callable ):
+					value = parser( value )
+
+				globals()[ variable ] = value
 except Exception as e:
 	print( f"Error parsing arguments: {e}" )
 	sys.exit(1)
 
-for key, value in options:
-	option_settings = available_options.get( key[ 1: ], {} )
-
-	if option_settings:
-		variable = option_settings.get( "variable" )
-
-		if variable:
-			parser = option_settings.get( "has_value", lambda x: True )
-
-			globals()[ variable ] = parser( value )
+if debug:
+	print_preprocessing = True
+	print_all = True
 
 with open( get_file_path( "metadata.json" ) ) as metadata_file:
 	metadata = json.load( metadata_file )
@@ -558,18 +640,25 @@ for dataset_id in selected_datasets:
 			engineered_dataset[ col ] = pd.to_numeric(engineered_dataset[ col ] )
 
 		# Apply scaling
-		scaler = StandardScaler()
+		match scaler_type:
+			case 'standard':
+				scaler = StandardScaler()
+			case 'minmax':
+				scaler = MinMaxScaler()
+			case _:
+				scaler = None
 
-		if target_column:
-			X = engineered_dataset.drop( target_column, axis = 1 )
-			y = engineered_dataset[ target_column ]
+		if scaler:
+			if target_column:
+				X = engineered_dataset.drop( target_column, axis = 1 )
+				y = engineered_dataset[ target_column ]
 
-			scaler.set_output( transform = "pandas" )
-			X_scaled = scaler.fit_transform( X )
+				scaler.set_output( transform = "pandas" )
+				X_scaled = scaler.fit_transform( X )
 
-			engineered_dataset = pd.concat( [ X_scaled, pd.Series( y, name = target_column ) ], axis = 1 )
-		else:
-			engineered_dataset[ engineered_dataset.columns ] = scaler.fit_transform( engineered_dataset[ engineered_dataset.columns ] )
+				engineered_dataset = pd.concat( [ X_scaled, pd.Series( y, name = target_column ) ], axis = 1 )
+			else:
+				engineered_dataset[ engineered_dataset.columns ] = scaler.fit_transform( engineered_dataset[ engineered_dataset.columns ] )
 
 		# Correlation analysis
 		correlation_matrix = engineered_dataset.corr().abs()
@@ -619,7 +708,7 @@ for dataset_id in selected_datasets:
 			if print_preprocessing:
 				print_message( f"One-hot encoding on dataset #{dataset_id}, {len(categorical_cols_to_encode)} column/s: {message}" )
 
-			engineered_dataset = pd.get_dummies( engineered_dataset, columns = columns, dummy_na = False ) # dummy_na=False to not create a column for NaN
+			engineered_dataset = pd.get_dummies( engineered_dataset, columns = columns, dummy_na = False, dtype = int ) # dummy_na=False to not create a column for NaN
 
 		# Drop duplicate rows
 		engineered_dataset = engineered_dataset.drop_duplicates()
