@@ -3,7 +3,8 @@ from datetime import datetime
 from getopt import getopt
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
-from pycaret.classification import *
+from pycaret.classification import ClassificationExperiment
+from pycaret.clustering import ClusteringExperiment
 from scipy.stats import ttest_ind
 from sklearn.metrics import *
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, KFold, train_test_split, cross_validate
@@ -96,12 +97,12 @@ def t_test( clusters ):
 
 	return good_p_values / count_p_values if count_p_values != 0 else .0
 
-def get_model_metrics( model, X, y, time = None ):
+def get_model_metrics( model, X, y, time = None, fitted_model = None ):
 	metrics = pd.Series()
 	cb_time = 0
 
 	if unsupervised:
-		before_callback = lambda : model.predict( X )
+		before_callback = lambda : model.predict( X ) if getattr( model, 'predict', False ) else fitted_model.labels_
 		metrics_to_calculate = {
 			"Silhouette" : lambda y : silhouette_score( X, y ),
 			"DBI" : lambda y : davies_bouldin_score( X, y ),
@@ -185,9 +186,18 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 
 	if pycaret_setup_args:
 		if unsupervised:
+			pycaret_experiment = ClusteringExperiment()
+
+			pycaret_experiment.setup(
+				data = dataset,
+				session_id = random_seed
+			)
+
 			print_message( "No unsupervised support for PyCaret" )
-		else:
-			setup(
+		elif target_column:
+			pycaret_experiment = ClassificationExperiment()
+
+			pycaret_experiment.setup(
 				data = dataset,
 				target = target_column,
 				session_id = random_seed,
@@ -196,7 +206,7 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 				**pycaret_setup_args
 			)
 
-			pycaret_available_models = models()
+			pycaret_available_models = pycaret_experiment.models()
 
 			if tune:
 				for index in range( len( pycaret_available_models ) ):
@@ -205,8 +215,8 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 					if row["Reference"] in selected_models:
 						start_time = get_current_time()
 
-						model = tune_model(
-							create_model(
+						model = pycaret_experiment.tune_model(
+							pycaret_experiment.create_model(
 								pycaret_available_models.index[ index ],
 								verbose = debug > 1
 							),
@@ -215,7 +225,7 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 							verbose = debug > 1
 						)
 
-						model_metrics = pull().loc["Mean"]
+						model_metrics = pycaret_experiment.pull().loc["Mean"]
 						model_metrics["TT (Sec)"] = get_current_time() - start_time
 						model_metrics.name = model
 
@@ -229,15 +239,15 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 					if row["Reference"] in selected_models:
 						selected_models_ids.append( pycaret_available_models.index[ index ] )
 
-				compare_models(
+				pycaret_experiment.compare_models(
 					verbose = debug > 1,
 					include = selected_models_ids
 				)
 
-				models_metrics = pull()
+				models_metrics = pycaret_experiment.pull()
 
 				for index in range( len( models_metrics ) ):
-					model = create_model( 
+					model = pycaret_experiment.create_model( 
 						models_metrics.index[ index ],
 						verbose = debug > 1
 					)
@@ -246,6 +256,8 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 					model_metrics.name = model
 
 					metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
+		else:
+			print_message( "No target column, skipping supervised analysis." )
 	else:
 		if unsupervised:
 			X_train = dataset
@@ -253,74 +265,79 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 
 			X_test = dataset
 			y_test = None
-		else:
+		elif target_column:
 			X = dataset.drop( target_column, axis = 1 )
 			y = dataset[ target_column ]
 
 			X_train, X_test, y_train, y_test = train_test_split( X, y, test_size = test_ratio, random_state = random_seed, stratify = y )
+		else:
+			X_train = None
 
-		for model_name, settings in available_models.items():
-			if model_name in selected_models:
-				module_name, class_name = model_name.rsplit( ".", 1 )
+		if X_train is not None:
+			for model_name, settings in available_models.items():
+				if model_name in selected_models:
+					module_name, class_name = model_name.rsplit( ".", 1 )
 
-				module = importlib.import_module( module_name )
+					module = importlib.import_module( module_name )
 
-				constructor_settings = settings.get( "constructor", {} )
+					constructor_settings = settings.get( "constructor", {} )
 
-				args = constructor_settings.get( "arguments", {} )
+					args = constructor_settings.get( "arguments", {} )
 
-				if constructor_settings.get( "random_state" ):
-					args["random_state"] = random_seed
+					if constructor_settings.get( "random_state" ):
+						args["random_state"] = random_seed
 
-				start_time = get_current_time()
+					start_time = get_current_time()
 
-				model = getattr( module, class_name )( **args )
+					model = getattr( module, class_name )( **args )
 
-				if tune:
-					param_grids = settings.get( "param_grids" )
+					if tune:
+						param_grids = settings.get( "param_grids" )
 
-					if not param_grids:
-						param_grid = settings.get( "param_grid" )
+						if not param_grids:
+							param_grid = settings.get( "param_grid" )
 
-						if param_grid:
-							param_grids = []
+							if param_grid:
+								param_grids = []
 
-							param_grids.append( param_grid )
+								param_grids.append( param_grid )
 
-					if param_grids:
-						for param_grid in param_grids:
-							cv = KFold( random_state = random_seed, shuffle = True, n_splits = cross_validation_tune_folds )
+						if param_grids:
+							for param_grid in param_grids:
+								cv = KFold( random_state = random_seed, shuffle = True, n_splits = cross_validation_tune_folds )
 
-							match tune_scoring:
-								case 'silhouette_score':
-									cv_scoring = make_scorer( silhouette_score )
-								case _:
-									cv_scoring = tune_scoring
+								match tune_scoring:
+									case 'silhouette_score':
+										cv_scoring = make_scorer( silhouette_score )
+									case _:
+										cv_scoring = tune_scoring
 
-							if tune_iterations:
-								search = RandomizedSearchCV( model, param_grid, n_iter = tune_iterations, cv = cv, scoring = cv_scoring, random_state = random_seed, verbose = 0 if debug < 2 else 4, n_jobs = None if not turbo else -1 )
-							else:
-								search = GridSearchCV( model, param_grid, cv = cv, scoring = cv_scoring, verbose = 0 if debug < 2 else 4, n_jobs = None if not turbo else -1 )
+								if tune_iterations:
+									search = RandomizedSearchCV( model, param_grid, n_iter = tune_iterations, cv = cv, scoring = cv_scoring, random_state = random_seed, verbose = 0 if debug < 2 else 4, n_jobs = None if not turbo else -1 )
+								else:
+									search = GridSearchCV( model, param_grid, cv = cv, scoring = cv_scoring, verbose = 0 if debug < 2 else 4, n_jobs = None if not turbo else -1 )
 
-							if ( debug ):
-								print_message( f"Fitting {model.__class__.__name__}..." )
+								if ( debug ):
+									print_message( f"Fitting {model.__class__.__name__}..." )
 
-							search.fit( X_train, y_train )
+								fitted_model = search.fit( X_train, y_train )
 
-							model = search.best_estimator_
+								model = search.best_estimator_
+						else:
+							model = None
 					else:
-						model = None
-				else:
-					if ( debug ):
-						print_message( f"Fitting {model.__class__.__name__}..." )
+						if ( debug ):
+							print_message( f"Fitting {model.__class__.__name__}..." )
 
-					model.fit( X_train, y_train )
+						fitted_model = model.fit( X_train, y_train )
 
-				if model:
-					model_metrics = get_model_metrics( model, X_test, y_test, get_current_time() - start_time )
-					model_metrics.name = model
+					if model:
+						model_metrics = get_model_metrics( model, X_test, y_test, get_current_time() - start_time, fitted_model )
+						model_metrics.name = model
 
-					metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
+						metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
+		else:
+			print_message( "No target column, skipping supervised analysis." )
 
 	if not debug:
 		sys.stdout = original_stdout
@@ -378,6 +395,7 @@ max_ohe_unique_values = 10
 correlation_acceptance_threshold = .6
 oversampling_threshold = 0
 tune_iterations = 10
+tune = False
 cross_validation_folds = 5
 cross_validation_tune_folds = 5
 force_tuning = False
@@ -424,8 +442,7 @@ available_options = {
 		"variable" : "selected_models",
 	},
 	"n" : {
-		"has_value" : int,
-		"variable" : "tune_iterations",
+		"variable" : "tune",
 	},
 	"o" : {
 		"has_value" : int,
@@ -459,6 +476,10 @@ available_options = {
 	"x" : {
 		"has_value" : lambda x: list( map( str.strip, x.split( "," ) ) ),
 		"variable" : "excluded_models",
+	},
+	"y" : {
+		"has_value" : int,
+		"variable" : "tune_iterations",
 	},
 }
 
@@ -645,6 +666,8 @@ for dataset_id in selected_datasets:
 				scaler = StandardScaler()
 			case 'minmax':
 				scaler = MinMaxScaler()
+			case 'robust':
+				scaler = RobustScaler()
 			case _:
 				scaler = None
 
@@ -672,12 +695,17 @@ for dataset_id in selected_datasets:
 				for col2 in upper.index:
 					if col2 != target_column:
 						if upper.loc[ col2, col1 ] > correlation_acceptance_threshold:
-							# Determine which column to drop: the one with the lower relationship with the target column
-							relationship_with_target = {
-								col1: upper.loc[ col1, target_column ],
-								col2: upper.loc[ col2, target_column ]
-							}
-							col_to_drop = min( relationship_with_target, key = relationship_with_target.get )
+							if target_column:
+								# Determine which column to drop: the one with the lower relationship with the target column
+								relationship_with_target = {
+									col1: upper.loc[ col1, target_column ],
+									col2: upper.loc[ col2, target_column ]
+								}
+
+								col_to_drop = min( relationship_with_target, key = relationship_with_target.get )
+							else:
+								col_to_drop = col1
+
 							to_drop.add( col_to_drop )
 
 		engineered_dataset = engineered_dataset.drop( columns = list( to_drop ) )
@@ -809,8 +837,11 @@ for dataset_id in selected_datasets:
 					}
 
 			for key, value in experiments_settings.items():
-				if experiment( key, value.get( "dataset" ), tune = value.get( "tune", False ), **value.get( "pycaret_setup_args", {} ) ):
-					if not force_tuning:
-						break
+				experiment_tune = value.get( "tune", False )
+
+				if not experiment_tune or tune:
+					if experiment( key, value.get( "dataset" ), tune = experiment_tune, **value.get( "pycaret_setup_args", {} ) ):
+						if not force_tuning:
+							break
 
 print_message( "Finished." )
