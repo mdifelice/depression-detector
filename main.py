@@ -3,8 +3,6 @@ from datetime import datetime
 from getopt import getopt
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
-from pycaret.classification import ClassificationExperiment
-from pycaret.clustering import ClusteringExperiment
 from scipy.stats import ttest_ind
 from sklearn.metrics import *
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, KFold, train_test_split, cross_validate
@@ -58,11 +56,9 @@ def get_current_time():
 	return time.time()
 
 def get_p_values( dataset_1, dataset_2 ):
-	t_stats = {}
 	p_values = {}
 
 	for column in dataset_1:
-		t_stats[ column ] = {}
 		p_values[ column ] = None
 
 		if pd.api.types.is_numeric_dtype( dataset_1[ column ] ) and pd.api.types.is_numeric_dtype( dataset_2[ column ] ):
@@ -72,16 +68,24 @@ def get_p_values( dataset_1, dataset_2 ):
 
 	return p_values
 
-def t_test( clusters ):
+def t_test( X, y ):
 	count_p_values = 0
 	good_p_values = 0
-	columns_to_check = clusters[0].columns
+	good_columns = set()
+	columns_to_check = X.columns
+	p_value_limit = .05
+	unique_labels = list( set( y ) )
 
-	for i in range( len( clusters ) ):
-		for j in range( len( clusters ) ):
+	for i in range( len( unique_labels ) ):
+		for j in range( len( unique_labels ) ):
 			if j > i:
-				cluster_1 = clusters[ i ]
-				cluster_2 = clusters[ j ]
+				label_1 = unique_labels[ i ]
+				label_2 = unique_labels[ j ]
+				indices_1 = [ index for index, label in enumerate( y ) if label == label_1 ]
+				indices_2 = [ index for index, label in enumerate( y ) if label == label_2 ]
+
+				cluster_1 = X.loc[ indices_1 ]
+				cluster_2 = X.loc[ indices_2 ]
 
 				p_values = get_p_values( cluster_1, cluster_2 )
 
@@ -89,13 +93,18 @@ def t_test( clusters ):
 					if column in p_values:
 						count_p_values += 1
 					
-					try:
-						if p_values[ column ] < 0.05:
-							good_p_values += 1
-					except:
-						continue
+					if p_values[ column ] < p_value_limit:
+						good_columns.add( column )
 
-	return good_p_values / count_p_values if count_p_values != 0 else .0
+						good_p_values += 1
+
+				if debug:
+					print( f"T-Test columns p-values for cluster {i} vs {j}:" )
+
+					for column, p_value in p_values.items():
+						print( f"{column}: {p_value}" )
+
+	return good_p_values / count_p_values if count_p_values != 0 else .0 if return_average else good_columns
 
 def get_model_metrics( model, X, y, time = None, fitted_model = None ):
 	metrics = pd.Series()
@@ -107,7 +116,8 @@ def get_model_metrics( model, X, y, time = None, fitted_model = None ):
 			"Silhouette" : lambda y : silhouette_score( X, y ),
 			"DBI" : lambda y : davies_bouldin_score( X, y ),
 			"Calinski-Harabasz" : lambda y : calinski_harabasz_score( X, y ),
-			"T-Test" : t_test
+			"Clusters" : lambda y : len( set( y ) ),
+			"T-Test" : lambda y : t_test( X, y )
 		}
 		after_callback = None
 	else:
@@ -171,7 +181,7 @@ def metrics_are_successful( metrics ):
 
 	return metrics[ metric ] >= metric_acceptance_threshold if metric else False
 
-def experiment( title, dataset, tune = False, **pycaret_setup_args ):
+def experiment( title, dataset, tune = False ):
 	success = False
 	metrics = pd.DataFrame()
 
@@ -184,160 +194,85 @@ def experiment( title, dataset, tune = False, **pycaret_setup_args ):
 		sys.stdout = open( os.devnull, "w" )
 		sys.stderr = open( os.devnull, "w" )
 
-	if pycaret_setup_args:
-		if unsupervised:
-			pycaret_experiment = ClusteringExperiment()
+	if unsupervised:
+		X_train = dataset
+		y_train = None
 
-			pycaret_experiment.setup(
-				data = dataset,
-				session_id = random_seed
-			)
+		X_test = dataset
+		y_test = None
+	elif target_column:
+		X = dataset.drop( target_column, axis = 1 )
+		y = dataset[ target_column ]
 
-			print_message( "No unsupervised support for PyCaret" )
-		elif target_column:
-			pycaret_experiment = ClassificationExperiment()
+		X_train, X_test, y_train, y_test = train_test_split( X, y, test_size = test_ratio, random_state = random_seed, stratify = y )
+	else:
+		X_train = None
 
-			pycaret_experiment.setup(
-				data = dataset,
-				target = target_column,
-				session_id = random_seed,
-				train_size = 1 - test_ratio,
-				verbose = debug > 1,
-				**pycaret_setup_args
-			)
+	if X_train is not None:
+		for model_name, settings in available_models.items():
+			if model_name in selected_models:
+				module_name, class_name = model_name.rsplit( ".", 1 )
 
-			pycaret_available_models = pycaret_experiment.models()
+				module = importlib.import_module( module_name )
 
-			if tune:
-				for index in range( len( pycaret_available_models ) ):
-					row = pycaret_available_models.iloc[ index ]
+				constructor_settings = settings.get( "constructor", {} )
 
-					if row["Reference"] in selected_models:
-						start_time = get_current_time()
+				args = constructor_settings.get( "arguments", {} )
 
-						model = pycaret_experiment.tune_model(
-							pycaret_experiment.create_model(
-								pycaret_available_models.index[ index ],
-								verbose = debug > 1
-							),
-							optimize = tune_scoring,
-							n_iter = tune_iterations,
-							verbose = debug > 1
-						)
+				if constructor_settings.get( "random_state" ):
+					args["random_state"] = random_seed
 
-						model_metrics = pycaret_experiment.pull().loc["Mean"]
-						model_metrics["TT (Sec)"] = get_current_time() - start_time
-						model_metrics.name = model
+				start_time = get_current_time()
 
-						metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
-			else:
-				selected_models_ids = []
+				model = getattr( module, class_name )( **args )
 
-				for index in range( len( pycaret_available_models ) ):
-					row = pycaret_available_models.iloc[ index ]
+				if tune:
+					param_grids = settings.get( "param_grids" )
 
-					if row["Reference"] in selected_models:
-						selected_models_ids.append( pycaret_available_models.index[ index ] )
+					if not param_grids:
+						param_grid = settings.get( "param_grid" )
 
-				pycaret_experiment.compare_models(
-					verbose = debug > 1,
-					include = selected_models_ids
-				)
+						if param_grid:
+							param_grids = []
 
-				models_metrics = pycaret_experiment.pull()
+							param_grids.append( param_grid )
 
-				for index in range( len( models_metrics ) ):
-					model = pycaret_experiment.create_model( 
-						models_metrics.index[ index ],
-						verbose = debug > 1
-					)
+					if param_grids:
+						for param_grid in param_grids:
+							cv = KFold( random_state = random_seed, shuffle = True, n_splits = cross_validation_tune_folds )
 
-					model_metrics = models_metrics.iloc[ index ]
+							match tune_scoring:
+								case 'silhouette_score':
+									cv_scoring = make_scorer( silhouette_score )
+								case _:
+									cv_scoring = tune_scoring
+
+							if tune_iterations:
+								search = RandomizedSearchCV( model, param_grid, n_iter = tune_iterations, cv = cv, scoring = cv_scoring, random_state = random_seed, verbose = 0 if debug < 2 else 4, n_jobs = None if not turbo else -1 )
+							else:
+								search = GridSearchCV( model, param_grid, cv = cv, scoring = cv_scoring, verbose = 0 if debug < 2 else 4, n_jobs = None if not turbo else -1 )
+
+							if ( debug ):
+								print_message( f"Fitting {model.__class__.__name__}..." )
+
+							fitted_model = search.fit( X_train, y_train )
+
+							model = search.best_estimator_
+					else:
+						model = None
+				else:
+					if ( debug ):
+						print_message( f"Fitting {model.__class__.__name__}..." )
+
+					fitted_model = model.fit( X_train, y_train )
+
+				if model:
+					model_metrics = get_model_metrics( model, X_test, y_test, get_current_time() - start_time, fitted_model )
 					model_metrics.name = model
 
 					metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
-		else:
-			print_message( "No target column, skipping supervised analysis." )
 	else:
-		if unsupervised:
-			X_train = dataset
-			y_train = None
-
-			X_test = dataset
-			y_test = None
-		elif target_column:
-			X = dataset.drop( target_column, axis = 1 )
-			y = dataset[ target_column ]
-
-			X_train, X_test, y_train, y_test = train_test_split( X, y, test_size = test_ratio, random_state = random_seed, stratify = y )
-		else:
-			X_train = None
-
-		if X_train is not None:
-			for model_name, settings in available_models.items():
-				if model_name in selected_models:
-					module_name, class_name = model_name.rsplit( ".", 1 )
-
-					module = importlib.import_module( module_name )
-
-					constructor_settings = settings.get( "constructor", {} )
-
-					args = constructor_settings.get( "arguments", {} )
-
-					if constructor_settings.get( "random_state" ):
-						args["random_state"] = random_seed
-
-					start_time = get_current_time()
-
-					model = getattr( module, class_name )( **args )
-
-					if tune:
-						param_grids = settings.get( "param_grids" )
-
-						if not param_grids:
-							param_grid = settings.get( "param_grid" )
-
-							if param_grid:
-								param_grids = []
-
-								param_grids.append( param_grid )
-
-						if param_grids:
-							for param_grid in param_grids:
-								cv = KFold( random_state = random_seed, shuffle = True, n_splits = cross_validation_tune_folds )
-
-								match tune_scoring:
-									case 'silhouette_score':
-										cv_scoring = make_scorer( silhouette_score )
-									case _:
-										cv_scoring = tune_scoring
-
-								if tune_iterations:
-									search = RandomizedSearchCV( model, param_grid, n_iter = tune_iterations, cv = cv, scoring = cv_scoring, random_state = random_seed, verbose = 0 if debug < 2 else 4, n_jobs = None if not turbo else -1 )
-								else:
-									search = GridSearchCV( model, param_grid, cv = cv, scoring = cv_scoring, verbose = 0 if debug < 2 else 4, n_jobs = None if not turbo else -1 )
-
-								if ( debug ):
-									print_message( f"Fitting {model.__class__.__name__}..." )
-
-								fitted_model = search.fit( X_train, y_train )
-
-								model = search.best_estimator_
-						else:
-							model = None
-					else:
-						if ( debug ):
-							print_message( f"Fitting {model.__class__.__name__}..." )
-
-						fitted_model = model.fit( X_train, y_train )
-
-					if model:
-						model_metrics = get_model_metrics( model, X_test, y_test, get_current_time() - start_time, fitted_model )
-						model_metrics.name = model
-
-						metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
-		else:
-			print_message( "No target column, skipping supervised analysis." )
+		print_message( "No target column, skipping supervised analysis." )
 
 	if not debug:
 		sys.stdout = original_stdout
@@ -400,7 +335,6 @@ cross_validation_folds = 5
 cross_validation_tune_folds = 5
 force_tuning = False
 train = False
-pycaret = None
 debug = False
 unsupervised = False
 print_all = False
@@ -447,10 +381,6 @@ available_options = {
 	"o" : {
 		"has_value" : int,
 		"variable" : "oversampling_threshold",
-	},
-	"p" : {
-		"has_value" : True,
-		"variable" : "pycaret",
 	},
 	"r" : {
 		"variable" : "turbo",
@@ -772,75 +702,21 @@ for dataset_id in selected_datasets:
 			processed_dataset = engineered_dataset
 
 		if train:
-			match pycaret:
-				case "only_training":
-					experiments_settings = {
-						"Pycaret only training" : {
-							"dataset" : processed_dataset,
-							"pycaret_setup_args" : {
-								"preprocess" : False
-							}
-						},
-						"Pycaret only training and tuning" : {
-							"dataset" : processed_dataset,
-							"tune" : True,
-							"pycaret_setup_args" : {
-								"preprocess" : False
-							}
-						}
-					}
-				case "complete":
-					experiments_settings = {
-						"Pycaret" : {
-							"dataset" : unprocessed_dataset,
-							"pycaret_setup_args" : {
-								"preprocess" : True
-							}
-						},
-						"Pycaret with normalization" : {
-							"dataset" : unprocessed_dataset,
-							"pycaret_setup_args" : {
-								"normalize" : True
-							}
-						},
-						"Pycaret with balancing" : {
-							"dataset" : unprocessed_dataset,
-							"pycaret_setup_args" : {
-								"fix_imbalance" : True
-							}
-						},
-						"Pycaret with normalization and balancing" : {
-							"dataset" : unprocessed_dataset,
-							"pycaret_setup_args" : {
-								"normalize" : True,
-								"fix_imbalance" : True
-							}
-						},
-						"Pycaret with normalization, balancing and tuning" : {
-							"dataset" : unprocessed_dataset,
-							"tune" : True,
-							"pycaret_setup_args" : {
-								"normalize" : True,
-								"fix_imbalance" : True
-							}
-						}
-					}
-				case _:
-					experiments_settings = {
-						"Custom" : {
-							"dataset" : processed_dataset,
-						},
-						"Custom with tuning" : {
-							"dataset" : processed_dataset,
-							"tune" : True,
-						},
-					}
+			experiments_settings = {
+				"Custom" : {
+					"dataset" : processed_dataset,
+				},
+				"Custom with tuning" : {
+					"dataset" : processed_dataset,
+					"tune" : True,
+				},
+			}
 
 			for key, value in experiments_settings.items():
 				experiment_tune = value.get( "tune", False )
 
 				if not experiment_tune or tune:
-					if experiment( key, value.get( "dataset" ), tune = experiment_tune, **value.get( "pycaret_setup_args", {} ) ):
+					if experiment( key, value.get( "dataset" ), tune = experiment_tune ):
 						if not force_tuning:
 							break
 
