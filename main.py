@@ -16,6 +16,8 @@ import pandas as pd
 import re
 import sys
 import time
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 def print_message( message, eol = True, timestamp = True ):
 	now = datetime.now()
@@ -123,7 +125,7 @@ def get_model_metrics( model, X, y, time = None, fitted_model = None ):
 	else:
 		min_cv_folds = y.value_counts().min()
 
-		before_callback = lambda : cross_validate( model, X, y, cv = cross_validation_folds if cross_validation_folds <= min_cv_folds else min_cv_folds, scoring = [ "f1", "roc_auc", "accuracy", "precision", "recall" ], error_score = 'raise' )
+		before_callback = lambda : cross_validate( model, X, y, cv = cross_validation_folds if cross_validation_folds <= min_cv_folds else min_cv_folds, scoring = { "f1" : make_scorer( f1_score ), "roc_auc" : make_scorer( roc_auc_score ), "accuracy" : make_scorer( accuracy_score ), "precision" : make_scorer( precision_score ), "recall" : make_scorer( recall_score ), "specificity" : make_scorer( recall_score, pos_label = 0 ) }, error_score = 'raise' )
 
 		after_callback = lambda scores : sum( scores["fit_time"] )
 		metrics_to_calculate = {
@@ -132,6 +134,7 @@ def get_model_metrics( model, X, y, time = None, fitted_model = None ):
 			"Accuracy" : lambda scores : scores["test_accuracy"].mean(),
 			"Prec." : lambda scores : scores["test_precision"].mean(),
 			"Recall" : lambda scores : scores["test_recall"].mean(),
+			"Spec." : lambda scores : scores["test_specificity"].mean(),
 		}
 
 	for metric in metrics_to_calculate:
@@ -180,6 +183,9 @@ def metrics_are_successful( metrics ):
 			metric = "Silhouette"
 
 	return metrics[ metric ] >= metric_acceptance_threshold if metric else False
+
+def generate_chart( chart, file_name ):
+	plt.savefig( "./charts/" + file_name )
 
 def experiment( title, dataset, tune = False ):
 	success = False
@@ -271,50 +277,70 @@ def experiment( title, dataset, tune = False ):
 					model_metrics.name = model
 
 					metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
+
+					if generate_charts:
+						y_pred = model.predict( X_test )
+
+						disp = ConfusionMatrixDisplay( confusion_matrix = confusion_matrix( y_test, y_pred ) )
+						
+						generate_chart( disp.plot(), f"dataset-{dataset_id}-{model.__class__.__name__}-confusion-matrix.png" )
+
+						fpr, tpr, thresholds = roc_curve( y_test, y_pred )
+
+						disp = RocCurveDisplay( fpr = fpr, tpr = tpr, roc_auc = model_metrics["AUC"] )
+
+						generate_chart( disp.plot(), f"dataset-{dataset_id}-{model.__class__.__name__}-roc-curve.png" )
+
+
+		if metrics.empty:
+			message = "No metrics found."
+		else:
+			message = None
 	else:
-		print_message( "No target column, skipping supervised analysis." )
+		message = "No target column, skipping supervised analysis."
 
 	if not debug:
 		sys.stdout = original_stdout
 		sys.stderr = original_stderr
 
-	best_model = None
+	if message is None:
+		best_model = None
 
-	if metrics.empty:
-		message = "No metrics found."
-	else:
-		best_model_index = 0
-		models_to_print = {}
-		max_value = 0
-
-		if unsupervised:
-			sort_by = "Calinski-Harabasz"
+		if metrics.empty:
+			message = "No metrics found."
 		else:
-			sort_by = "AUC"
+			best_model_index = 0
+			models_to_print = {}
+			max_value = 0
 
-		metrics.sort_values( by = sort_by, ascending = False, inplace = True )
+			if unsupervised:
+				sort_by = "Calinski-Harabasz"
+			else:
+				sort_by = "AUC"
 
-		for index in range( len( metrics ) ):
-			if print_all:
-				models_to_print[ metrics.index[ index ] ] = metrics.iloc[ index ]
+			metrics.sort_values( by = sort_by, ascending = False, inplace = True )
 
-			model_metrics = metrics.iloc[ index ]
+			for index in range( len( metrics ) ):
+				if print_all:
+					models_to_print[ metrics.index[ index ] ] = metrics.iloc[ index ]
 
-			if metrics_are_successful( model_metrics ):
-				success = True
+				model_metrics = metrics.iloc[ index ]
 
-				if model_metrics[ sort_by ] > max_value:
-					max_value = model_metrics[ sort_by ]
-					best_model_index = index
+				if metrics_are_successful( model_metrics ):
+					success = True
 
-		message = ""
-		best_model = metrics.index[ best_model_index ]
+					if model_metrics[ sort_by ] > max_value:
+						max_value = model_metrics[ sort_by ]
+						best_model_index = index
 
-		if not print_all:
-			models_to_print[ metrics.index[ best_model_index ] ] = metrics.iloc[ best_model_index ]
+			message = ""
+			best_model = metrics.index[ best_model_index ]
 
-		for model, model_metrics in models_to_print.items():
-			message += ( "" if len( models_to_print ) == 1 else "\n" ) + f"{model if debug else model.__class__.__name__}: {get_formatted_metrics( model_metrics )}"
+			if not print_all:
+				models_to_print[ metrics.index[ best_model_index ] ] = metrics.iloc[ best_model_index ]
+
+			for model, model_metrics in models_to_print.items():
+				message += ( "" if len( models_to_print ) == 1 else "\n" ) + f"{model if debug else model.__class__.__name__}: {get_formatted_metrics( model_metrics )}"
 
 	print_message( ( "" if debug else " " ) + message, timestamp = debug )
 
@@ -344,6 +370,7 @@ selected_models = None
 excluded_models = None
 print_preprocessing = False
 scaler_type = "standard"
+generate_charts = False
 
 available_options = {
 	"a" : {
@@ -362,6 +389,9 @@ available_options = {
 	},
 	"f" : {
 		"variable" : "force_tuning",
+	},
+	"h": {
+		"variable" : "generate_charts",
 	},
 	"i" : {
 		"variable" : "cross_validation_tune_folds",
@@ -701,12 +731,16 @@ for dataset_id in selected_datasets:
 		else:
 			processed_dataset = engineered_dataset
 
+		if generate_charts:
+			generate_chart( sns.heatmap( dataset.corr( numeric_only = True ), cmap = "coolwarm" ), f"dataset-{dataset_id}-correlation-matrix-before-processing.png" )
+			generate_chart( sns.heatmap( processed_dataset.corr(), cmap = "coolwarm" ), f"dataset-{dataset_id}-correlation-matrix-after-processing.png" )
+
 		if train:
 			experiments_settings = {
-				"Custom" : {
+				"No tuning" : {
 					"dataset" : processed_dataset,
 				},
-				"Custom with tuning" : {
+				"With tuning" : {
 					"dataset" : processed_dataset,
 					"tune" : True,
 				},
