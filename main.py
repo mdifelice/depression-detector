@@ -732,8 +732,17 @@ for dataset_id in selected_datasets:
 			processed_dataset = engineered_dataset
 
 		if generate_charts:
-			generate_chart( sns.heatmap( dataset.corr( numeric_only = True ), cmap = "coolwarm" ), f"dataset-{dataset_id}-correlation-matrix-before-processing.png" )
-			generate_chart( sns.heatmap( processed_dataset.corr(), cmap = "coolwarm" ), f"dataset-{dataset_id}-correlation-matrix-after-processing.png" )
+			try:
+				generate_chart( sns.heatmap( dataset.corr( numeric_only = True ), cmap = "coolwarm" ), f"dataset-{dataset_id}-correlation-matrix-before-processing.png" )
+			except Exception as e:
+				if debug:
+					print_message( "Error generating correlation before matrix chart" )
+
+			try:
+				generate_chart( sns.heatmap( processed_dataset.corr(), cmap = "coolwarm" ), f"dataset-{dataset_id}-correlation-matrix-after-processing.png" )
+			except Exception as e:
+				if debug:
+					print_message( "Error generating correlation after matrix chart" )
 
 		if train:
 			experiments_settings = {
