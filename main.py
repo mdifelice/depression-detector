@@ -18,6 +18,7 @@ import sys
 import time
 import seaborn as sns
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 
 def print_message( message, eol = True, timestamp = True ):
 	now = datetime.now()
@@ -279,18 +280,57 @@ def experiment( title, dataset, tune = False ):
 					metrics = pd.concat( [ metrics, model_metrics.to_frame().T ] )
 
 					if generate_charts:
-						y_pred = model.predict( X_test )
+						if y_test:
+							y_pred = model.predict( X_test )
 
-						disp = ConfusionMatrixDisplay( confusion_matrix = confusion_matrix( y_test, y_pred ) )
-						
-						generate_chart( disp.plot(), f"dataset-{dataset_id}-{model.__class__.__name__}-confusion-matrix.png" )
+							disp = ConfusionMatrixDisplay( confusion_matrix = confusion_matrix( y_test, y_pred ) )
+							
+							generate_chart( disp.plot(), f"dataset-{dataset_id}-{model.__class__.__name__}-confusion-matrix.png" )
 
-						fpr, tpr, thresholds = roc_curve( y_test, y_pred )
+							fpr, tpr, thresholds = roc_curve( y_test, y_pred )
 
-						disp = RocCurveDisplay( fpr = fpr, tpr = tpr, roc_auc = model_metrics["AUC"] )
+							disp = RocCurveDisplay( fpr = fpr, tpr = tpr, roc_auc = model_metrics["AUC"] )
 
-						generate_chart( disp.plot(), f"dataset-{dataset_id}-{model.__class__.__name__}-roc-curve.png" )
+							generate_chart( disp.plot(), f"dataset-{dataset_id}-{model.__class__.__name__}-roc-curve.png" )
+						else:
+							y_pred = model.predict( X_train) #fitted_model.labels_
 
+							silhouette_avg = silhouette_score( X_train, y_pred )
+							sample_silhouette_values = silhouette_samples( X_train, y_pred )
+
+							y_lower = 10
+							n_clusters = len( np.unique( y_pred ) )
+							fig, (ax1) = plt.subplots(1, 1)
+
+							ax1.set_xlim( [-0.1, 1] )
+							ax1.set_ylim( [0, len(X_train) + (n_clusters + 1) * 10] )
+
+							for i in range( n_clusters ):
+								ith_cluster_silhouette_values = sample_silhouette_values[ y_pred == i ]
+								ith_cluster_silhouette_values.sort()
+
+								size_cluster_i = ith_cluster_silhouette_values.shape[0]
+								y_upper = y_lower + size_cluster_i
+								color = cm.nipy_spectral( float( i ) / n_clusters )
+
+								ax1.fill_betweenx(
+									np.arange( y_lower, y_upper ),
+									0,
+									ith_cluster_silhouette_values,
+									facecolor = color,
+									edgecolor = color,
+									alpha=0.7,
+								)
+
+								ax1.text( -0.05, y_lower + 0.5 * size_cluster_i, str( i ) )
+								y_lower = y_upper + 10
+
+								ax1.axvline( x = silhouette_avg, color="red", linestyle="--" )
+
+								ax1.set_yticks([])  # Clear the yaxis labels / ticks
+								ax1.set_xticks([-0.1, 0, 0.2, 0.4, 0.6, 0.8, 1])
+
+								generate_chart( fig, f"dataset-{dataset_id}-{model.__class__.__name__}-silhouette.png" )
 
 		if metrics.empty:
 			message = "No metrics found."
