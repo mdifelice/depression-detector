@@ -16,7 +16,7 @@ The script can be called via bash and their arguments are:
 * `-n`: Whether to perform tune.
 * `-o <value>`: Indicates the number of rows a dataset must have to perform oversampling. By default is 0, meaning no oversampling will be used.
 * `-r`: Turbo mode. It uses all available processors.
-* `-s <test_ratio>': Test ratio. By default is 0.3.
+* `-s <test_ratio>`: Test ratio. By default is 0.3.
 * `-t`: Whether to train.
 * `-u`: Whether to perform unsupervised analysis.
 * `-v <value>`: How many cross validations folds to perform. Default value is 5.
