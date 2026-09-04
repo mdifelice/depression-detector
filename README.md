@@ -1,14 +1,16 @@
 # Depression Detector
 
-A web application for uploading and configuring datasets for depression detection analysis.
+A web application for uploading, configuring, training, and evaluating datasets for depression detection analysis.
 
 ## Project Structure
 
 ```
 depression-detector/
 ├── backend/          # FastAPI Python backend
+│   └── training/     # Preprocessing, feature engineering, model evaluation
 ├── frontend/         # React + TypeScript frontend
-└── data/             # Uploaded datasets and metadata (gitignored)
+├── data/             # Uploaded datasets, metadata, training artifacts (gitignored)
+└── models/           # Trained model artifacts (.joblib, gitignored)
 ```
 
 ## Prerequisites
@@ -89,6 +91,8 @@ python cli.py list
 
 ## API Endpoints
 
+### Authentication
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/auth/login` | Google OAuth login (redirect) |
@@ -96,9 +100,39 @@ python cli.py list
 | POST | `/auth/login-token` | Login with Google ID token |
 | POST | `/auth/logout` | Logout |
 | GET | `/auth/me` | Get current user |
+
+### Datasets
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | POST | `/datasets` | Upload a dataset (CSV/XLSX) |
 | GET | `/datasets` | List user's datasets |
 | GET | `/datasets/{id}` | Get dataset metadata |
 | GET | `/datasets/{id}/columns` | Get dataset columns and sample |
 | PATCH | `/datasets/{id}` | Update dataset configuration |
 | DELETE | `/datasets/{id}` | Delete a dataset |
+
+### Training
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/datasets/{id}/training` | Get training settings |
+| GET | `/datasets/{id}/training/models` | List available models |
+| PATCH | `/datasets/{id}/training` | Update training settings |
+| POST | `/datasets/{id}/train` | Start background training job |
+| GET | `/datasets/{id}/train/status` | Get job status/progress |
+| GET | `/datasets/{id}/train/logs` | Get training logs |
+| GET | `/datasets/{id}/train/results` | Get per-model evaluation results |
+| GET | `/datasets/{id}/train/charts` | Get chart URLs |
+
+### Trained Models
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/models` | List saved models |
+| GET | `/models/{id}` | Get a saved model's info |
+| GET | `/models/{id}/schema` | Get prediction form schema |
+| POST | `/models/{id}/predict` | Make a prediction |
+| DELETE | `/models/{id}` | Delete a saved model |
+
+Training runs as a background job supporting 17 sklearn/XGBoost classifiers, optional hyperparameter tuning (Grid/RandomizedSearchCV), cross-validation, feature engineering (datetime, one-hot, ordinal, multi-value), scaling, correlation filtering, class balancing (SMOTE/RandomUnderSampler), and best-model selection (highest AUC among models with F1 >= 0.7, else highest AUC). Charts and logs are stored per dataset under `data/{id}/`.

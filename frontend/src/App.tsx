@@ -4,6 +4,9 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import ConfigureDataset from "./pages/ConfigureDataset";
 import TrainDataset from "./pages/TrainDataset";
+import TrainingProgress from "./pages/TrainingProgress";
+import SavedModels from "./pages/SavedModels";
+import Predict from "./pages/Predict";
 import "./App.css";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -44,6 +47,30 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <TrainDataset />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/results/:id"
+        element={
+          <ProtectedRoute>
+            <TrainingProgress />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/models"
+        element={
+          <ProtectedRoute>
+            <SavedModels />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/predict/:id"
+        element={
+          <ProtectedRoute>
+            <Predict />
           </ProtectedRoute>
         }
       />

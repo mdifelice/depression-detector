@@ -2,9 +2,9 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   datasetsApi,
-  DatasetMetadata,
-  DatasetColumnsResponse,
-  CategoricalColumnConfig,
+  type DatasetMetadata,
+  type DatasetColumnsResponse,
+  type CategoricalColumnConfig,
 } from "../api";
 
 export default function ConfigureDataset() {
@@ -14,6 +14,7 @@ export default function ConfigureDataset() {
   const [metadata, setMetadata] = useState<DatasetMetadata | null>(null);
   const [columns, setColumns] = useState<DatasetColumnsResponse | null>(null);
   const [ignoreColumns, setIgnoreColumns] = useState<string[]>([]);
+  const [nullableColumns, setNullableColumns] = useState<string[]>([]);
   const [targetColumn, setTargetColumn] = useState<string>("");
   const [positiveValues, setPositiveValues] = useState<string[]>([]);
   const [positiveValueInput, setPositiveValueInput] = useState("");
@@ -31,6 +32,7 @@ export default function ConfigureDataset() {
         setMetadata(meta);
         setColumns(colRes.data);
         setIgnoreColumns(meta.ignore_columns);
+        setNullableColumns(meta.nullable_columns);
         setTargetColumn(meta.target_column || "");
         setPositiveValues(meta.positive_values);
         setCategoricalColumns(meta.categorical_columns);
@@ -41,6 +43,12 @@ export default function ConfigureDataset() {
 
   const toggleIgnore = (col: string) => {
     setIgnoreColumns((prev) =>
+      prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]
+    );
+  };
+
+  const toggleNullable = (col: string) => {
+    setNullableColumns((prev) =>
       prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]
     );
   };
@@ -92,6 +100,7 @@ export default function ConfigureDataset() {
     try {
       await datasetsApi.update(id, {
         ignore_columns: ignoreColumns,
+        nullable_columns: nullableColumns,
         target_column: targetColumn || null,
         positive_values: positiveValues,
         categorical_columns: categoricalColumns,
@@ -106,10 +115,6 @@ export default function ConfigureDataset() {
   };
 
   if (!metadata || !columns) return <p>Loading...</p>;
-
-  const availableColumns = columns.columns.filter(
-    (col) => !ignoreColumns.includes(col)
-  );
 
   return (
     <div className="configure-dataset">
@@ -132,6 +137,7 @@ export default function ConfigureDataset() {
               <th>Column</th>
               <th>Sample Values</th>
               <th>Ignore</th>
+              <th>Allow Null</th>
               <th>Target</th>
               <th>Categorical</th>
               <th>Multi-value</th>
@@ -144,7 +150,7 @@ export default function ConfigureDataset() {
                 <td>
                   {columns.sample
                     .slice(0, 3)
-                    .map((row) => String(row[col]))
+                    .map((row) => String(row[col] ?? "null"))
                     .join(", ")}
                 </td>
                 <td>
@@ -152,6 +158,14 @@ export default function ConfigureDataset() {
                     type="checkbox"
                     checked={ignoreColumns.includes(col)}
                     onChange={() => toggleIgnore(col)}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={nullableColumns.includes(col)}
+                    onChange={() => toggleNullable(col)}
+                    disabled={ignoreColumns.includes(col)}
                   />
                 </td>
                 <td>

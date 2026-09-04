@@ -236,3 +236,161 @@ code {
   gap: 0.5rem;
   margin-top: 1rem;
 }
+
+.status-section {
+  background: #f8f9fa;
+  padding: 1.25rem;
+  border-radius: 8px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.status-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.status-running { background: #fff3cd; color: #856404; }
+.status-completed { background: #d4edda; color: #155724; }
+.status-failed { background: #f8d7da; color: #721c24; }
+
+.progress-bar {
+  height: 12px;
+  background: #e9ecef;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+
+.progress-running { background: #ffc107; }
+.progress-completed { background: #28a745; }
+.progress-failed { background: #dc3545; }
+
+.progress-text {
+  margin-top: 0.5rem;
+  text-align: right;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.log-viewer {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.8rem;
+  padding: 1rem;
+  border-radius: 6px;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.chart-card {
+  border: 1px solid #eee;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.chart-card img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chart-card p {
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  text-align: center;
+  background: #f8f9fa;
+}
+
+.best-model-row td {
+  background: #e8f5e9;
+}
+
+.best-label {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 4px;
+  background: #28a745;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.error-text {
+  color: #dc3545;
+}
+
+.success-text {
+  color: #28a745;
+}
+
+.prediction-result {
+  margin-top: 1.5rem;
+}
+
+.prediction-card {
+  background: #f8f9fa;
+  padding: 1.5rem;
+  border-radius: 8px;
+  max-width: 400px;
+}
+
+.prediction-badge {
+  display: inline-block;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+}
+
+.badge-positive {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.badge-negative {
+  background: #d4edda;
+  color: #155724;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+label span {
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+select, input {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}

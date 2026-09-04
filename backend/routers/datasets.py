@@ -17,7 +17,9 @@ from models import (
     TrainingSettings,
     TrainingSettingsUpdate,
     AVAILABLE_MODELS,
+    JobStatus,
 )
+from training import runner
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -192,6 +194,54 @@ async def update_training_settings(
     return settings
 
 
+@router.post("/{dataset_id}/train", response_model=JobStatus)
+async def start_training(dataset_id: str, request: Request):
+    get_current_user(request)
+    metadata = _load_metadata(dataset_id)
+    if not metadata.target_column:
+        raise HTTPException(status_code=400, detail="Target column not configured")
+    training = _load_training(dataset_id)
+    try:
+        return runner.start_training(dataset_id, metadata.model_dump(), training.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{dataset_id}/train/status", response_model=JobStatus)
+async def train_status(dataset_id: str, request: Request):
+    get_current_user(request)
+    status = runner.get_job_status(dataset_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="No training job found")
+    return JobStatus(**status)
+
+
+@router.get("/{dataset_id}/train/logs")
+async def train_logs(dataset_id: str, request: Request):
+    get_current_user(request)
+    return {"logs": runner.get_job_logs(dataset_id)}
+
+
+@router.get("/{dataset_id}/train/results")
+async def train_results(dataset_id: str, request: Request):
+    get_current_user(request)
+    results = runner.get_results(dataset_id)
+    if results is None:
+        raise HTTPException(status_code=404, detail="No results found")
+    return {"results": results}
+
+
+@router.get("/{dataset_id}/train/charts")
+async def train_charts(dataset_id: str, request: Request):
+    get_current_user(request)
+    charts = runner.get_charts(dataset_id)
+    urls = [
+        f"/static/{dataset_id}/charts/{name}"
+        for name in charts
+    ]
+    return {"charts": urls}
+
+
 @router.delete("/{dataset_id}")
 async def delete_dataset(dataset_id: str, request: Request):
     get_current_user(request)
@@ -208,5 +258,14 @@ async def delete_dataset(dataset_id: str, request: Request):
     train_file = _training_path(dataset_id)
     if train_file.exists():
         train_file.unlink()
+
+    job_file = DATA_DIR / f"{dataset_id}.job.json"
+    if job_file.exists():
+        job_file.unlink()
+
+    results_dir = DATA_DIR / dataset_id
+    if results_dir.exists():
+        import shutil
+        shutil.rmtree(results_dir)
 
     return {"message": "Dataset deleted"}

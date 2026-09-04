@@ -5,6 +5,7 @@ charts/
 logs/
 lib/
 data/
+models/
 node_modules/
 __pycache__/
 *.pyc

@@ -17,6 +17,7 @@ class DatasetMetadata(BaseModel):
     id: str
     filename: str
     ignore_columns: list[str] = []
+    nullable_columns: list[str] = []
     target_column: Optional[str] = None
     positive_values: list[str] = []
     categorical_columns: dict[str, CategoricalColumnConfig] = {}
@@ -27,6 +28,7 @@ class DatasetMetadata(BaseModel):
 
 class DatasetMetadataUpdate(BaseModel):
     ignore_columns: Optional[list[str]] = None
+    nullable_columns: Optional[list[str]] = None
     target_column: Optional[str] = None
     positive_values: Optional[list[str]] = None
     categorical_columns: Optional[dict[str, CategoricalColumnConfig]] = None
@@ -108,3 +110,43 @@ class TrainingSettingsUpdate(BaseModel):
     correlation_acceptance_threshold: Optional[float] = None
     selected_models: Optional[list[str]] = None
     models: Optional[dict[str, ModelConfig]] = None
+
+
+class JobStatus(BaseModel):
+    dataset_id: str
+    status: str
+    progress: float
+    current_step: str
+    started_at: str
+    completed_at: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ModelResult(BaseModel):
+    model_name: str
+    f1: Optional[float] = None
+    accuracy: Optional[float] = None
+    precision: Optional[float] = None
+    recall: Optional[float] = None
+    auc: Optional[float] = None
+    is_best: bool = False
+    roc_chart: Optional[str] = None
+    confusion_matrix_chart: Optional[str] = None
+    error: Optional[str] = None
+
+
+class SavedModelInfo(BaseModel):
+    dataset_id: str
+    filename: str
+    model_name: str
+    metrics: dict
+
+
+class PredictionRequest(BaseModel):
+    values: dict[str, str]
+
+
+class PredictionResponse(BaseModel):
+    prediction: int
+    probability: Optional[float] = None
+    label: str

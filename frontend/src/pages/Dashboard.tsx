@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { datasetsApi, DatasetInfo } from "../api";
+import { datasetsApi, type DatasetInfo } from "../api";
 import { useAuth } from "../contexts/AuthContext";
 
 export default function Dashboard() {
@@ -46,6 +46,7 @@ export default function Dashboard() {
       <header>
         <h1>Depression Detector</h1>
         <div className="user-info">
+          <button onClick={() => navigate("/models")}>Models</button>
           {user?.picture && <img src={user.picture} alt="" className="avatar" />}
           <span>{user?.name}</span>
           <button onClick={logout}>Logout</button>
@@ -92,6 +93,9 @@ export default function Dashboard() {
                       </button>
                       <button onClick={() => navigate(`/train/${ds.id}`)}>
                         Train
+                      </button>
+                      <button onClick={() => navigate(`/results/${ds.id}`)}>
+                        Results
                       </button>
                       <button onClick={() => handleDelete(ds.id)}>
                         Delete

@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
+import axios from "axios";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   datasetsApi,
-  DatasetMetadata,
-  TrainingSettings,
-  ModelConfig,
+  type DatasetMetadata,
+  type TrainingSettings,
 } from "../api";
 
 const SCALING_TYPES = ["standard", "minmax", "robust"];
@@ -80,14 +80,23 @@ export default function TrainDataset() {
     setEditingModel(null);
   };
 
-  const handleSave = async () => {
+  const handleSave = async (startAfter: boolean) => {
     if (!id || !settings) return;
     setSaving(true);
     try {
       await datasetsApi.updateTraining(id, settings);
-      navigate("/dashboard");
-    } catch (err) {
+      if (startAfter) {
+        await datasetsApi.startTraining(id);
+        navigate(`/results/${id}`);
+      } else {
+        navigate("/dashboard");
+      }
+    } catch (err: unknown) {
+      const msg = axios.isAxiosError(err)
+        ? err.response?.data?.detail || err.message
+        : String(err);
       console.error("Save failed", err);
+      alert(msg);
     } finally {
       setSaving(false);
     }
@@ -356,8 +365,11 @@ export default function TrainDataset() {
       )}
 
       <section className="actions">
-        <button onClick={handleSave} disabled={saving}>
+        <button onClick={() => handleSave(false)} disabled={saving}>
           {saving ? "Saving..." : "Save Training Settings"}
+        </button>
+        <button onClick={() => handleSave(true)} disabled={saving}>
+          {saving ? "Starting..." : "Save & Start Training"}
         </button>
       </section>
     </div>
