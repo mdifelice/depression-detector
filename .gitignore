@@ -4,3 +4,12 @@ bin/
 charts/
 logs/
 lib/
+data/
+node_modules/
+__pycache__/
+*.pyc
+.env
+.venv/
+frontend/dist/
+frontend/build/
+*.egg-info/
