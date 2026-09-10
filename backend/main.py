@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from config import DATA_DIR, SECRET_KEY, ALLOWED_ORIGINS
+from config import DATA_DIR, MODELS_DIR, SECRET_KEY, ALLOWED_ORIGINS
 from routers.auth import router as auth_router
 from routers.datasets import router as datasets_router
 from routers.models import router as models_router
@@ -31,6 +31,7 @@ app.include_router(datasets_router)
 app.include_router(models_router)
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(DATA_DIR)), name="static")
 
 
