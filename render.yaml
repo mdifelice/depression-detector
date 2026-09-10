@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: depression-detector
+    runtime: docker
+    plan: free
+    branch: master
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: DISABLE_AUTH
+        value: "true"
+      - key: DATA_DIR
+        value: /data
+      - key: MODELS_DIR
+        value: /models
+      - key: PYTHONPATH
+        value: /app/backend
