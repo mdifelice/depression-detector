@@ -28,17 +28,20 @@ COPY --from=backend /usr/local/lib/python3.13/site-packages /usr/local/lib/pytho
 
 COPY backend/ /app/backend/
 COPY --from=frontend /app/dist /usr/share/nginx/html
-COPY space/nginx.conf /etc/nginx/conf.d/default.conf
-COPY space/supervisord.conf /etc/supervisor/conf.d/app.conf
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/supervisord.conf /etc/supervisor/conf.d/app.conf
+COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 RUN rm -f /etc/nginx/sites-enabled/default && \
+    chmod +x /usr/local/bin/entrypoint.sh && \
     mkdir -p /data /models /var/log/nginx
 
 ENV DATA_DIR=/data \
     MODELS_DIR=/models \
     DISABLE_AUTH=true \
-    PYTHONPATH=/app/backend
+    PYTHONPATH=/app/backend \
+    PORT=7860
 
 EXPOSE 7860
 
-CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/app.conf"]
+CMD ["/usr/local/bin/entrypoint.sh"]
