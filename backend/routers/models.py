@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import joblib
@@ -36,6 +37,25 @@ def _get_model_data(dataset_id: str) -> dict:
     if not model_file.exists():
         raise HTTPException(status_code=404, detail="No trained model found for this dataset")
     return joblib.load(model_file)
+
+
+def _prediction_log_path(dataset_id: str) -> Path:
+    return DATA_DIR / dataset_id / "logs" / "predictions.log"
+
+
+def _log_prediction(dataset_id: str, values: dict, result: dict):
+    path = _prediction_log_path(dataset_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "dataset_id": dataset_id,
+        "input": values,
+        "prediction": result["prediction"],
+        "probability": result.get("probability"),
+        "label": result["label"],
+    }
+    with open(path, "a") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 @router.get("", response_model=list[SavedModelInfo])
@@ -97,7 +117,7 @@ async def get_model_schema(dataset_id: str, request: Request):
     for col in df.columns:
         if col == target or col in ignore_cols:
             continue
-        if col not in model_data.get("feature_names", []) and col not in model_data.get("ordinal_mappings", {}) and col not in model_data.get("ohe_columns", []):
+        if col not in model_data.get("feature_names", []) and col not in categorical and col not in multi_value:
             continue
 
         col_type = "text"
@@ -155,11 +175,12 @@ def _encode_input(values: dict, model_data: dict, metadata: DatasetMetadata) -> 
     ohe_columns = model_data.get("ohe_columns", [])
     categorical_cols = metadata.categorical_columns
     for col, config in categorical_cols.items():
-        if col in df.columns and not config.get("ordinal", True):
-            if col in ohe_columns:
+        if col in df.columns and not getattr(config, "ordinal", True):
+            ohe_cols_for_col = [c for c in ohe_columns if c.startswith(f"{col}_")]
+            if ohe_cols_for_col:
                 val = str(df[col].iloc[0])
-                for ohe_col in [c for c in ohe_columns if c.startswith(f"{col}__")]:
-                    suffix = ohe_col[len(col) + 2:]
+                for ohe_col in ohe_cols_for_col:
+                    suffix = ohe_col[len(col) + 1:]
                     df[ohe_col] = 1 if val == suffix else 0
                 df = df.drop(columns=[col])
 
@@ -204,11 +225,29 @@ async def predict(dataset_id: str, request: Request, payload: PredictionRequest)
     if probability is not None:
         label = f"positive ({probability:.1%})" if probability >= 0.5 else f"negative ({1 - probability:.1%})"
 
-    return PredictionResponse(
-        prediction=prediction,
-        probability=probability,
-        label=label,
-    )
+    result = {
+        "prediction": prediction,
+        "probability": probability,
+        "label": label,
+    }
+    _log_prediction(dataset_id, payload.values, result)
+
+    return PredictionResponse(**result)
+
+
+@router.get("/{dataset_id}/prediction-logs")
+async def get_prediction_logs(dataset_id: str, request: Request):
+    get_current_user(request)
+    path = _prediction_log_path(dataset_id)
+    if not path.exists():
+        return {"logs": []}
+    logs = []
+    with open(path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                logs.append(json.loads(line))
+    return {"logs": logs}
 
 
 @router.delete("/{dataset_id}")

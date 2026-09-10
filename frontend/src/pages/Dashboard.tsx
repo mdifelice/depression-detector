@@ -46,7 +46,7 @@ export default function Dashboard() {
       <header>
         <h1>Depression Detector</h1>
         <div className="user-info">
-          <button onClick={() => navigate("/models")}>Models</button>
+          <button onClick={() => navigate("/trained-models")}>Models</button>
           {user?.picture && <img src={user.picture} alt="" className="avatar" />}
           <span>{user?.name}</span>
           <button onClick={logout}>Logout</button>

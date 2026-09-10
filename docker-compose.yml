@@ -6,8 +6,8 @@ services:
       - ALLOWED_ORIGINS=http://localhost,http://localhost:80
       - FRONTEND_URL=http://localhost
     volumes:
-      - app-data:/app/data
-      - app-models:/app/models
+      - app-data:/data
+      - app-models:/models
     restart: unless-stopped
 
   frontend:

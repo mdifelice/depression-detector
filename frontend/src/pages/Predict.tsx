@@ -54,7 +54,7 @@ export default function Predict() {
     <div className="predict-page">
       <header>
         <h1>Make a Prediction</h1>
-        <button onClick={() => navigate("/models")}>Back</button>
+        <button onClick={() => navigate("/trained-models")}>Back</button>
       </header>
 
       <main>

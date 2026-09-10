@@ -2,8 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { datasetsApi, type JobStatus, type ModelResult } from "../api";
 
-const CHART_BASE = "http://localhost:8000";
-
 export default function TrainingProgress() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -129,7 +127,7 @@ export default function TrainingProgress() {
                 {charts.map((chart) => (
                   <div key={chart} className="chart-card">
                     <img
-                      src={`${CHART_BASE}${chart}`}
+                      src={chart}
                       alt={chart}
                       loading="lazy"
                     />

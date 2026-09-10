@@ -59,7 +59,7 @@ function AppRoutes() {
         }
       />
       <Route
-        path="/models"
+        path="/trained-models"
         element={
           <ProtectedRoute>
             <SavedModels />

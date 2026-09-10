@@ -73,6 +73,10 @@ th {
   font-weight: 600;
 }
 
+td button + button {
+  margin-left: 0.5rem;
+}
+
 .actions {
   display: flex;
   gap: 0.75rem;

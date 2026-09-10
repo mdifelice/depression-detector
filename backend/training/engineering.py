@@ -27,6 +27,13 @@ def _normalize_match(value: str) -> str:
     return value
 
 
+def _random_order(values, random_seed: int) -> list:
+    vals = list(values)
+    rng = np.random.default_rng(random_seed)
+    rng.shuffle(vals)
+    return vals
+
+
 def binarize_target(
     df: pd.DataFrame, target_column: str, positive_values: list[str]
 ) -> pd.DataFrame:
@@ -72,7 +79,10 @@ def transform_datetime(df: pd.DataFrame, datetime_cols: list[str]) -> pd.DataFra
 
 
 def ordinal_encode(
-    df: pd.DataFrame, categorical_columns: dict, target_column: str | None = None
+    df: pd.DataFrame,
+    categorical_columns: dict,
+    target_column: str | None = None,
+    random_seed: int = 123,
 ) -> tuple[pd.DataFrame, dict]:
     df = df.copy()
     mappings = {}
@@ -95,12 +105,14 @@ def ordinal_encode(
             mappings[col] = mapping
             logger.info(f"Ordinal encoded '{col}': {mapping}")
         else:
-            unique_vals = sorted(df[col].dropna().unique())
+            unique_vals = _random_order(df[col].dropna().unique(), random_seed)
             if unique_vals:
                 mapping = {v: i for i, v in enumerate(unique_vals)}
                 df[col] = df[col].map(mapping).fillna(-1).astype(int)
                 mappings[col] = mapping
-                logger.info(f"Ordinal encoded '{col}' (auto order): {mapping}")
+                logger.info(
+                    f"Ordinal encoded '{col}' (random order, seed={random_seed}): {mapping}"
+                )
     return df, mappings
 
 
@@ -111,6 +123,7 @@ def one_hot_encode(
     max_unique: int,
     fallback_mappings: dict,
     target_column: str | None = None,
+    random_seed: int = 123,
 ) -> tuple[pd.DataFrame, list[str]]:
     df = df.copy()
     ohe_cols_generated = []
@@ -141,19 +154,22 @@ def one_hot_encode(
         if config.get("ordinal", True):
             continue
         n_unique = df[col].nunique()
-        if 2 < n_unique <= max_unique:
+        if n_unique <= max_unique:
             dummies = pd.get_dummies(df[col], prefix=col, dtype=int)
             df = pd.concat([df.drop(columns=[col]), dummies], axis=1)
             ohe_cols_generated.extend(dummies.columns.tolist())
             logger.info(f"One-hot encoded categorical '{col}': {n_unique} values")
-        elif n_unique > max_unique:
-            unique_vals = sorted(df[col].dropna().unique())
+        else:
+            unique_vals = _random_order(df[col].dropna().unique(), random_seed)
             if unique_vals:
                 mapping = {v: i for i, v in enumerate(unique_vals)}
                 df[col] = df[col].map(mapping).fillna(-1).astype(int)
                 fallback_mappings[col] = mapping
                 ohe_cols_generated.append(col)
-                logger.info(f"Too many values ({n_unique}) for '{col}', ordinal encoded as fallback")
+                logger.info(
+                    f"Too many values ({n_unique}) for '{col}', number encoded "
+                    f"(random order, seed={random_seed})"
+                )
 
     return df, ohe_cols_generated
 
@@ -265,10 +281,12 @@ def engineer(
         df = binarize_target(df, target_column, positive_values)
         _log_shape(log_fn, f"After binarizing target '{target_column}'", df)
 
-    df, ordinal_mappings = ordinal_encode(df, categorical_columns, target_column)
+    df, ordinal_mappings = ordinal_encode(df, categorical_columns, target_column, random_seed)
     _log_shape(log_fn, "After categorical (sortable) encoding", df)
     fallback_mappings: dict = {}
-    df, ohe_cols = one_hot_encode(df, multi_value_columns, categorical_columns, max_ohe, fallback_mappings, target_column)
+    df, ohe_cols = one_hot_encode(
+        df, multi_value_columns, categorical_columns, max_ohe, fallback_mappings, target_column, random_seed
+    )
     ordinal_mappings.update(fallback_mappings)
     _log_shape(log_fn, "After one-hot / multi-value encoding", df)
 
