@@ -23,7 +23,9 @@ export default function TrainDataset() {
   const [saving, setSaving] = useState(false);
   const [editingModel, setEditingModel] = useState<string | null>(null);
   const [modelParams, setModelParams] = useState<Record<string, unknown>>({});
-  const [modelParamGrid, setModelParamGrid] = useState<Record<string, unknown>>({});
+  const [modelParamGrid, setModelParamGrid] = useState<
+    Record<string, unknown> | unknown[]
+  >({});
 
   useEffect(() => {
     if (!id) return;
@@ -63,10 +65,17 @@ export default function TrainDataset() {
 
   const openModelEditor = (modelKey: string) => {
     if (!settings) return;
-    const cfg = settings.models[modelKey] || { constructor_params: {}, param_grid: {} };
+    const cfg = settings.models[modelKey] || {
+      constructor_params: {},
+      param_grid: {},
+    };
     setEditingModel(modelKey);
     setModelParams({ ...cfg.constructor_params });
-    setModelParamGrid({ ...cfg.param_grid });
+    setModelParamGrid(
+      Array.isArray(cfg.param_grid)
+        ? [...cfg.param_grid]
+        : { ...(cfg.param_grid as Record<string, unknown>) }
+    );
   };
 
   const saveModelConfig = () => {
@@ -74,7 +83,9 @@ export default function TrainDataset() {
     const updatedModels = { ...settings.models };
     updatedModels[editingModel] = {
       constructor_params: { ...modelParams },
-      param_grid: { ...modelParamGrid },
+      param_grid: Array.isArray(modelParamGrid)
+        ? [...modelParamGrid]
+        : { ...(modelParamGrid as Record<string, unknown>) },
     };
     updateField("models", updatedModels);
     setEditingModel(null);
@@ -104,7 +115,7 @@ export default function TrainDataset() {
 
   const handleJsonChange = (
     value: string,
-    setter: (v: Record<string, unknown>) => void
+    setter: (v: unknown) => void
   ) => {
     try {
       setter(JSON.parse(value));
@@ -117,13 +128,14 @@ export default function TrainDataset() {
 
   return (
     <div className="configure-dataset">
-      <header>
+      <header className="sticky-header">
         <h1>Train: {metadata.filename}</h1>
         <button onClick={() => navigate("/dashboard")}>Back</button>
       </header>
 
-      <section>
-        <h2>General Settings</h2>
+      <div className="table-scroll-container">
+        <section>
+          <h2>General Settings</h2>
         <div className="form-grid">
           <label>
             <span>Scaling Type</span>
@@ -250,6 +262,18 @@ export default function TrainDataset() {
           </label>
 
           <label>
+            <span>Max Sortable Values</span>
+            <input
+              type="number"
+              min={2}
+              value={settings.max_sortable_values}
+              onChange={(e) =>
+                updateField("max_sortable_values", Number(e.target.value))
+              }
+            />
+          </label>
+
+          <label>
             <span>Correlation Acceptance Threshold</span>
             <input
               type="number"
@@ -333,6 +357,7 @@ export default function TrainDataset() {
           </tbody>
         </table>
       </section>
+      </div>
 
       {editingModel && (
         <div className="modal-overlay" onClick={() => setEditingModel(null)}>
@@ -343,7 +368,12 @@ export default function TrainDataset() {
               <textarea
                 rows={6}
                 value={JSON.stringify(modelParams, null, 2)}
-                onChange={(e) => handleJsonChange(e.target.value, setModelParams)}
+                onChange={(e) =>
+                  handleJsonChange(
+                    e.target.value,
+                    (v) => setModelParams(v as Record<string, unknown>)
+                  )
+                }
               />
             </label>
             <label>
@@ -352,7 +382,13 @@ export default function TrainDataset() {
                 rows={6}
                 value={JSON.stringify(modelParamGrid, null, 2)}
                 onChange={(e) =>
-                  handleJsonChange(e.target.value, setModelParamGrid)
+                  handleJsonChange(
+                    e.target.value,
+                    (v) =>
+                      setModelParamGrid(
+                        v as Record<string, unknown> | unknown[]
+                      )
+                  )
                 }
               />
             </label>
@@ -364,13 +400,15 @@ export default function TrainDataset() {
         </div>
       )}
 
-      <section className="actions">
-        <button onClick={() => handleSave(false)} disabled={saving}>
-          {saving ? "Saving..." : "Save Training Settings"}
-        </button>
-        <button onClick={() => handleSave(true)} disabled={saving}>
-          {saving ? "Starting..." : "Save & Start Training"}
-        </button>
+      <section className="sticky-footer">
+        <div className="actions">
+          <button onClick={() => handleSave(false)} disabled={saving}>
+            {saving ? "Saving..." : "Save Training Settings"}
+          </button>
+          <button onClick={() => handleSave(true)} disabled={saving}>
+            {saving ? "Starting..." : "Save & Start Training"}
+          </button>
+        </div>
       </section>
     </div>
   );

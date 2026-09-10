@@ -14,3 +14,4 @@ __pycache__/
 frontend/dist/
 frontend/build/
 *.egg-info/
+.aider.*

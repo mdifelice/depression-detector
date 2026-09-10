@@ -21,6 +21,7 @@ SESSION_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
 
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+DISABLE_AUTH = os.getenv("DISABLE_AUTH", "false").lower() == "true"
 
 ALLOWED_EXTENSIONS = {"csv", "xlsx"}
 MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB

@@ -20,6 +20,7 @@ export interface DatasetInfo {
 
 export interface CategoricalColumnConfig {
   order: string[];
+  ordinal: boolean;
 }
 
 export interface DatasetMetadata {
@@ -46,13 +47,15 @@ export interface DatasetMetadataUpdate {
 
 export interface DatasetColumnsResponse {
   columns: string[];
-  sample: Record<string, unknown>[];
+  sample: string[][];
+  unique_value_counts: number[];
+  null_counts: number[];
   row_count: number;
 }
 
 export interface ModelConfig {
   constructor_params: Record<string, unknown>;
-  param_grid: Record<string, unknown>;
+  param_grid: Record<string, unknown> | unknown[];
 }
 
 export interface TrainingSettings {
@@ -67,6 +70,7 @@ export interface TrainingSettings {
   row_acceptance_threshold: number;
   column_acceptance_threshold: number;
   max_ohe_unique_values: number;
+  max_sortable_values: number;
   correlation_acceptance_threshold: number;
   selected_models: string[];
   models: Record<string, ModelConfig>;
@@ -84,6 +88,7 @@ export interface TrainingSettingsUpdate {
   row_acceptance_threshold?: number;
   column_acceptance_threshold?: number;
   max_ohe_unique_values?: number;
+  max_sortable_values?: number;
   correlation_acceptance_threshold?: number;
   selected_models?: string[];
   models?: Record<string, ModelConfig>;
@@ -139,6 +144,11 @@ export interface PredictionResponse {
   label: string;
 }
 
+export interface ColumnValuesResponse {
+  column: string;
+  unique_values: string[];
+}
+
 export const authApi = {
   loginWithToken: (token: string) =>
     api.post<User>("/auth/login-token", { token }),
@@ -155,6 +165,9 @@ export const datasetsApi = {
 
   getColumns: (id: string) =>
     api.get<DatasetColumnsResponse>(`/datasets/${id}/columns`),
+
+  getColumnValues: (id: string, column: string) =>
+    api.get<ColumnValuesResponse>(`/datasets/${id}/columns/${encodeURIComponent(column)}/values`),
 
   upload: (file: File) => {
     const formData = new FormData();

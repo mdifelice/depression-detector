@@ -28,70 +28,13 @@ from sklearn.metrics import (
     ConfusionMatrixDisplay,
 )
 
-logger = logging.getLogger(__name__)
+from training.defaults import (
+    DEFAULT_PARAM_GRIDS,
+    DEFAULT_CONSTRUCTOR_PARAMS,
+    SEED_ALGORITHMS,
+)
 
-DEFAULT_PARAM_GRIDS: dict[str, dict] = {
-    "sklearn.discriminant_analysis.LinearDiscriminantAnalysis": {},
-    "sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis": {},
-    "sklearn.ensemble._weight_boosting.AdaBoostClassifier": {
-        "n_estimators": [50, 100, 200],
-        "learning_rate": [0.01, 0.1, 1.0],
-    },
-    "sklearn.ensemble._forest.ExtraTreesClassifier": {
-        "n_estimators": [100, 200],
-        "max_depth": [None, 10, 20],
-    },
-    "sklearn.ensemble._gb.GradientBoostingClassifier": {
-        "n_estimators": [100, 200],
-        "learning_rate": [0.01, 0.1],
-        "max_depth": [3, 5],
-    },
-    "sklearn.ensemble._forest.RandomForestClassifier": {
-        "n_estimators": [100, 200],
-        "max_depth": [None, 10, 20],
-    },
-    "sklearn.gaussian_process._gpc.GaussianProcessClassifier": {},
-    "sklearn.linear_model._logistic.LogisticRegression": {
-        "C": [0.01, 0.1, 1.0, 10.0],
-        "max_iter": [1000],
-    },
-    "sklearn.linear_model._ridge.RidgeClassifier": {
-        "alpha": [0.1, 1.0, 10.0],
-    },
-    "sklearn.naive_bayes.GaussianNB": {},
-    "sklearn.neighbors._classification.KNeighborsClassifier": {
-        "n_neighbors": [3, 5, 7, 11],
-        "weights": ["uniform", "distance"],
-    },
-    "sklearn.linear_model._stochastic_gradient.SGDClassifier": {
-        "loss": ["hinge", "log_loss"],
-        "alpha": [0.0001, 0.001, 0.01],
-        "max_iter": [1000],
-    },
-    "sklearn.tree._classes.DecisionTreeClassifier": {
-        "max_depth": [None, 5, 10, 20],
-        "min_samples_split": [2, 5, 10],
-    },
-    "xgboost.sklearn.XGBClassifier": {
-        "n_estimators": [100, 200],
-        "learning_rate": [0.01, 0.1],
-        "max_depth": [3, 5, 7],
-    },
-    "sklearn.neural_network._multilayer_perceptron.MLPClassifier": {
-        "hidden_layer_sizes": [(64,), (128,), (64, 32)],
-        "max_iter": [500],
-        "alpha": [0.0001, 0.001],
-    },
-    "sklearn.ensemble.HistGradientBoostingClassifier": {
-        "max_iter": [100, 200],
-        "learning_rate": [0.01, 0.1],
-        "max_depth": [3, 5, None],
-    },
-    "sklearn.svm.LinearSVC": {
-        "C": [0.1, 1.0, 10.0],
-        "max_iter": [2000],
-    },
-}
+logger = logging.getLogger(__name__)
 
 
 def import_model_class(model_path: str):
@@ -112,8 +55,13 @@ def instantiate_model(model_path: str, constructor_params: dict):
     return cls(**filtered_params)
 
 
-def sanitize_params(params: dict) -> dict:
-    return {k: v for k, v in params.items() if k not in ("use_label_encoder", "eval_metric")}
+def sanitize_params(params: dict | list[dict]) -> dict | list[dict]:
+    if isinstance(params, list):
+        return [sanitize_params(p) for p in params]
+    return {
+        k: v for k, v in params.items()
+        if k not in ("use_label_encoder", "eval_metric")
+    }
 
 
 def get_score_for_auc(model, X_val):
@@ -155,6 +103,21 @@ def generate_confusion_matrix_chart(y_true, y_pred, model_name: str, output_path
     plt.close(fig)
 
 
+def _effective_n_splits(
+    X: pd.DataFrame, y: pd.Series, requested: int
+) -> int | None:
+    n_samples = len(X)
+    if n_samples < 2:
+        return None
+    if y.nunique() < 2:
+        return None
+    min_class_count = int(y.value_counts().min())
+    max_folds = min(n_samples, min_class_count)
+    if max_folds < 2:
+        return None
+    return max(2, min(requested, max_folds))
+
+
 def evaluate_model(
     model_path: str,
     constructor_params: dict,
@@ -168,9 +131,20 @@ def evaluate_model(
     model_name = model_path.rsplit(".", 1)[1]
     tune = settings.get("tune", False)
     tune_iterations = settings.get("tune_iterations", 10)
-    cv_folds = settings.get("cross_validation_folds", 5)
-    cv_tune_folds = settings.get("cross_validation_tune_folds", 5)
+    cv_folds = _effective_n_splits(
+        X, y, settings.get("cross_validation_folds", 5)
+    )
+    cv_tune_folds = _effective_n_splits(
+        X, y, settings.get("cross_validation_tune_folds", 5)
+    )
     random_seed = settings.get("random_seed", 123)
+
+    effective_constructor = {
+        **DEFAULT_CONSTRUCTOR_PARAMS.get(model_path, {}),
+        **(constructor_params or {}),
+    }
+    if model_path in SEED_ALGORITHMS:
+        effective_constructor.setdefault("random_state", random_seed)
 
     def log(msg):
         if log_fn:
@@ -182,13 +156,13 @@ def evaluate_model(
     effective_grid = sanitize_params(param_grid if param_grid else DEFAULT_PARAM_GRIDS.get(model_path, {}))
 
     try:
-        model = instantiate_model(model_path, constructor_params)
+        model = instantiate_model(model_path, effective_constructor)
     except Exception as e:
         log(f"Failed to instantiate {model_name}: {e}")
         return {"model_name": model_name, "model_path": model_path, "error": str(e)}
 
-    if tune and effective_grid:
-        log(f"Tuning with {'GridSearchCV' if tune_iterations == 0 else 'RandomizedSearchCV'} (iters={tune_iterations})")
+    if tune and effective_grid and cv_tune_folds is not None:
+        log(f"Tuning with {'GridSearchCV' if tune_iterations == 0 else 'RandomizedSearchCV'} (iters={tune_iterations}, folds={cv_tune_folds})")
         try:
             cv_inner = StratifiedKFold(n_splits=cv_tune_folds, shuffle=True, random_state=random_seed)
             if tune_iterations == 0:
@@ -205,28 +179,41 @@ def evaluate_model(
             log(f"Best params: {searcher.best_params_}")
         except Exception as e:
             log(f"Tuning failed, using default params: {e}")
-            model = instantiate_model(model_path, constructor_params)
+            model = instantiate_model(model_path, effective_constructor)
+    elif tune and not effective_grid:
+        log(f"Skipping tuning for {model_name}: no parameter grid available")
+    elif tune:
+        log(f"Skipping tuning for {model_name}: too few samples ({len(X)}) for {settings.get('cross_validation_tune_folds', 5)} folds")
 
     try:
-        cv_outer = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_seed)
-        y_pred = cross_val_predict(model, X, y, cv=cv_outer, method="predict")
+        if cv_folds is not None:
+            cv_outer = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_seed)
+            y_pred = cross_val_predict(model, X, y, cv=cv_outer, method="predict")
 
-        y_score = None
-        try:
-            temp_model = instantiate_model(model_path, constructor_params)
-            temp_model.fit(X, y)
-            y_score = get_score_for_auc(temp_model, X)
-        except Exception:
             y_score = None
-
-        if y_score is None:
             try:
-                y_score = cross_val_predict(model, X, y, cv=cv_outer, method="predict_proba")[:, 1]
+                temp_model = instantiate_model(model_path, effective_constructor)
+                temp_model.fit(X, y)
+                y_score = get_score_for_auc(temp_model, X)
             except Exception:
+                y_score = None
+
+            if y_score is None:
                 try:
-                    y_score = cross_val_predict(model, X, y, cv=cv_outer, method="decision_function")
+                    y_score = cross_val_predict(model, X, y, cv=cv_outer, method="predict_proba")[:, 1]
                 except Exception:
-                    y_score = y_pred.astype(float)
+                    try:
+                        y_score = cross_val_predict(model, X, y, cv=cv_outer, method="decision_function")
+                    except Exception:
+                        y_score = y_pred.astype(float)
+        else:
+            log(f"Too few samples ({len(X)}) for cross-validation; evaluating on training data")
+            model = instantiate_model(model_path, effective_constructor)
+            model.fit(X, y)
+            y_pred = model.predict(X)
+            y_score = get_score_for_auc(model, X)
+            if y_score is None:
+                y_score = y_pred.astype(float)
 
         f1 = f1_score(y, y_pred, zero_division=0)
         acc = accuracy_score(y, y_pred)

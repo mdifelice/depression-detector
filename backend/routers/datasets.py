@@ -13,6 +13,7 @@ from models import (
     DatasetMetadataUpdate,
     DatasetInfo,
     DatasetColumnsResponse,
+    ColumnValuesResponse,
     CategoricalColumnConfig,
     TrainingSettings,
     TrainingSettingsUpdate,
@@ -20,6 +21,7 @@ from models import (
     JobStatus,
 )
 from training import runner
+from training.defaults import build_default_models
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -94,7 +96,7 @@ async def upload_dataset(
         uploaded_by=user.email,
     )
     _save_metadata(metadata)
-    _save_training(dataset_id, TrainingSettings())
+    _save_training(dataset_id, TrainingSettings(models=build_default_models()))
 
     return DatasetInfo(
         id=metadata.id,
@@ -144,11 +146,46 @@ async def get_dataset_columns(dataset_id: str, request: Request):
     else:
         raise HTTPException(status_code=400, detail="Unsupported file format")
 
+    sample_rows = []
+    value_counts = []
+    null_counts = []
+    for col in df.columns:
+        unique_vals = df[col].dropna().astype(str).unique()
+        sample_rows.append(list(unique_vals[:3]))
+        value_counts.append(len(unique_vals))
+        null_counts.append(int(df[col].isna().sum()))
+
     return DatasetColumnsResponse(
         columns=list(df.columns),
-        sample=df.head(5).to_dict(orient="records"),
+        sample=sample_rows,
+        unique_value_counts=value_counts,
+        null_counts=null_counts,
         row_count=len(df),
     )
+
+
+@router.get("/{dataset_id}/columns/{column}/values", response_model=ColumnValuesResponse)
+async def get_column_values(dataset_id: str, column: str, request: Request):
+    get_current_user(request)
+    meta = _load_metadata(dataset_id)
+
+    dataset_file = _dataset_path(dataset_id, meta.filename)
+    if not dataset_file.exists():
+        raise HTTPException(status_code=404, detail="Dataset file not found")
+
+    ext = meta.filename.rsplit(".", 1)[-1].lower()
+    if ext == "csv":
+        df = pd.read_csv(dataset_file)
+    elif ext == "xlsx":
+        df = pd.read_excel(dataset_file)
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported file format")
+
+    if column not in df.columns:
+        raise HTTPException(status_code=404, detail=f"Column '{column}' not found")
+
+    unique_vals = sorted(df[column].dropna().astype(str).unique().tolist())
+    return ColumnValuesResponse(column=column, unique_values=unique_vals)
 
 
 @router.patch("/{dataset_id}", response_model=DatasetMetadata)

@@ -152,6 +152,17 @@ def _encode_input(values: dict, model_data: dict, metadata: DatasetMetadata) -> 
                 df[ohe_prefix] = 1 if total_prefix in parts else 0
             df = df.drop(columns=[col])
 
+    ohe_columns = model_data.get("ohe_columns", [])
+    categorical_cols = metadata.categorical_columns
+    for col, config in categorical_cols.items():
+        if col in df.columns and not config.get("ordinal", True):
+            if col in ohe_columns:
+                val = str(df[col].iloc[0])
+                for ohe_col in [c for c in ohe_columns if c.startswith(f"{col}__")]:
+                    suffix = ohe_col[len(col) + 2:]
+                    df[ohe_col] = 1 if val == suffix else 0
+                df = df.drop(columns=[col])
+
     datetime_cols = model_data.get("datetime_columns", [])
     for col in datetime_cols:
         if col in df.columns:

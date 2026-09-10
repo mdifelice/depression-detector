@@ -136,7 +136,7 @@ def _run_training(dataset_id: str, metadata: dict, training_settings: dict):
         })
 
         df = load_dataset(str(dataset_file))
-        _append_log(dataset_id, f"Loaded {len(df)} rows, {len(df.columns)} columns")
+        _append_log(dataset_id, f"Loaded dataset: {len(df)} rows × {len(df.columns)} columns")
 
         _save_job_status(dataset_id, {
             "dataset_id": dataset_id,
@@ -148,7 +148,7 @@ def _run_training(dataset_id: str, metadata: dict, training_settings: dict):
             "error": None,
         })
 
-        df = preprocess(df, metadata, training_settings)
+        df = preprocess(df, metadata, training_settings, log_fn=log_fn)
 
         _save_job_status(dataset_id, {
             "dataset_id": dataset_id,
@@ -160,7 +160,7 @@ def _run_training(dataset_id: str, metadata: dict, training_settings: dict):
             "error": None,
         })
 
-        artifact = engineer(df, metadata, training_settings)
+        artifact = engineer(df, metadata, training_settings, log_fn=log_fn)
         engineered_df = artifact["dataframe"]
 
         target_column = artifact["target_column"]

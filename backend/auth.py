@@ -8,6 +8,7 @@ from config import (
     GOOGLE_CLIENT_ID,
     WHITELIST_FILE,
     SECRET_KEY,
+    DISABLE_AUTH,
 )
 from models import User
 
@@ -40,6 +41,8 @@ def verify_google_token(token: str) -> dict:
 
 
 def get_current_user(request: Request) -> User:
+    if DISABLE_AUTH:
+        return User(email="test@localhost", name="Test User", picture="")
     session = request.session
     if "user" not in session:
         raise HTTPException(status_code=401, detail="Not authenticated")

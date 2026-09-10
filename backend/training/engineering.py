@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -10,6 +10,23 @@ from imblearn.under_sampling import RandomUnderSampler
 logger = logging.getLogger(__name__)
 
 
+def _log_shape(log_fn: Callable[[str], None] | None, prefix: str, df: pd.DataFrame):
+    msg = f"{prefix}: {len(df)} rows × {len(df.columns)} columns"
+    if log_fn:
+        log_fn(msg)
+    logger.info(msg)
+
+
+def _normalize_match(value: str) -> str:
+    try:
+        f = float(value)
+        if f.is_integer():
+            return str(int(f))
+    except (TypeError, ValueError):
+        pass
+    return value
+
+
 def binarize_target(
     df: pd.DataFrame, target_column: str, positive_values: list[str]
 ) -> pd.DataFrame:
@@ -17,10 +34,14 @@ def binarize_target(
     if target_column not in df.columns:
         raise ValueError(f"Target column '{target_column}' not found")
 
+    raw_str = df[target_column].astype(str).str.strip()
+    is_null = df[target_column].isna()
     if positive_values:
-        df[target_column] = df[target_column].astype(str).isin(positive_values).astype(int)
+        norm_raw = raw_str.map(_normalize_match)
+        norm_pos = {_normalize_match(v) for v in positive_values}
+        df[target_column] = norm_raw.isin(norm_pos).astype(int)
     else:
-        df[target_column] = df[target_column].astype(str).str.strip().str.len().gt(0).astype(int)
+        df[target_column] = ((~is_null) & raw_str.ne("")).astype(int)
 
     logger.info(f"Binarized target '{target_column}': {df[target_column].value_counts().to_dict()}")
     return df
@@ -51,12 +72,16 @@ def transform_datetime(df: pd.DataFrame, datetime_cols: list[str]) -> pd.DataFra
 
 
 def ordinal_encode(
-    df: pd.DataFrame, categorical_columns: dict
+    df: pd.DataFrame, categorical_columns: dict, target_column: str | None = None
 ) -> tuple[pd.DataFrame, dict]:
     df = df.copy()
     mappings = {}
     for col, config in categorical_columns.items():
+        if col == target_column:
+            continue
         if col not in df.columns:
+            continue
+        if not config.get("ordinal", True):
             continue
         order = config.get("order", [])
         if order:
@@ -69,6 +94,13 @@ def ordinal_encode(
                 df[col] = df[col].astype(int)
             mappings[col] = mapping
             logger.info(f"Ordinal encoded '{col}': {mapping}")
+        else:
+            unique_vals = sorted(df[col].dropna().unique())
+            if unique_vals:
+                mapping = {v: i for i, v in enumerate(unique_vals)}
+                df[col] = df[col].map(mapping).fillna(-1).astype(int)
+                mappings[col] = mapping
+                logger.info(f"Ordinal encoded '{col}' (auto order): {mapping}")
     return df, mappings
 
 
@@ -77,11 +109,15 @@ def one_hot_encode(
     multi_value_columns: list[str],
     categorical_columns: dict,
     max_unique: int,
+    fallback_mappings: dict,
+    target_column: str | None = None,
 ) -> tuple[pd.DataFrame, list[str]]:
     df = df.copy()
     ohe_cols_generated = []
 
     for col in multi_value_columns:
+        if col == target_column:
+            continue
         if col not in df.columns:
             continue
         expanded = df[col].astype(str).str.split(",", expand=False)
@@ -98,10 +134,11 @@ def one_hot_encode(
             logger.info(f"One-hot encoded multi-value '{col}': {len(all_values)} values")
 
     for col, config in categorical_columns.items():
+        if col == target_column:
+            continue
         if col not in df.columns:
             continue
-        order = config.get("order", [])
-        if order:
+        if config.get("ordinal", True):
             continue
         n_unique = df[col].nunique()
         if 2 < n_unique <= max_unique:
@@ -109,6 +146,14 @@ def one_hot_encode(
             df = pd.concat([df.drop(columns=[col]), dummies], axis=1)
             ohe_cols_generated.extend(dummies.columns.tolist())
             logger.info(f"One-hot encoded categorical '{col}': {n_unique} values")
+        elif n_unique > max_unique:
+            unique_vals = sorted(df[col].dropna().unique())
+            if unique_vals:
+                mapping = {v: i for i, v in enumerate(unique_vals)}
+                df[col] = df[col].map(mapping).fillna(-1).astype(int)
+                fallback_mappings[col] = mapping
+                ohe_cols_generated.append(col)
+                logger.info(f"Too many values ({n_unique}) for '{col}', ordinal encoded as fallback")
 
     return df, ohe_cols_generated
 
@@ -198,6 +243,7 @@ def engineer(
     df: pd.DataFrame,
     metadata: dict,
     training_settings: dict,
+    log_fn: Callable[[str], None] | None = None,
 ) -> dict:
     target_column = metadata.get("target_column")
     positive_values = metadata.get("positive_values", [])
@@ -213,23 +259,32 @@ def engineer(
 
     datetime_cols = detect_datetime_columns(df)
     df = transform_datetime(df, datetime_cols)
+    _log_shape(log_fn, "After datetime conversion", df)
 
     if target_column and target_column in df.columns:
         df = binarize_target(df, target_column, positive_values)
+        _log_shape(log_fn, f"After binarizing target '{target_column}'", df)
 
-    df, ordinal_mappings = ordinal_encode(df, categorical_columns)
-    df, ohe_cols = one_hot_encode(df, multi_value_columns, categorical_columns, max_ohe)
+    df, ordinal_mappings = ordinal_encode(df, categorical_columns, target_column)
+    _log_shape(log_fn, "After categorical (sortable) encoding", df)
+    fallback_mappings: dict = {}
+    df, ohe_cols = one_hot_encode(df, multi_value_columns, categorical_columns, max_ohe, fallback_mappings, target_column)
+    ordinal_mappings.update(fallback_mappings)
+    _log_shape(log_fn, "After one-hot / multi-value encoding", df)
 
     if target_column and target_column in df.columns:
         df, dropped_corr = drop_correlated_columns(df, target_column, corr_threshold)
+        _log_shape(log_fn, "After dropping correlated columns", df)
 
     exclude_cols = []
     if target_column and target_column in df.columns:
         exclude_cols.append(target_column)
     df, scaler = apply_scaling(df, scaling_type, exclude_cols)
+    _log_shape(log_fn, f"After applying {scaling_type} scaling", df)
 
     if target_column and target_column in df.columns:
         df = balance_data(df, target_column, oversampling_threshold, random_seed)
+        _log_shape(log_fn, "After balancing classes", df)
 
     feature_names = [c for c in df.columns if c != target_column]
 

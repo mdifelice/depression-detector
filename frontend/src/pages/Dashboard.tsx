@@ -88,18 +88,20 @@ export default function Dashboard() {
                     <td>{ds.filename}</td>
                     <td>{new Date(ds.uploaded_at).toLocaleString()}</td>
                     <td>
-                      <button onClick={() => navigate(`/configure/${ds.id}`)}>
-                        Configure
-                      </button>
-                      <button onClick={() => navigate(`/train/${ds.id}`)}>
-                        Train
-                      </button>
-                      <button onClick={() => navigate(`/results/${ds.id}`)}>
-                        Results
-                      </button>
-                      <button onClick={() => handleDelete(ds.id)}>
-                        Delete
-                      </button>
+                      <div className="actions-row">
+                        <button onClick={() => navigate(`/configure/${ds.id}`)}>
+                          Configure
+                        </button>
+                        <button onClick={() => navigate(`/train/${ds.id}`)}>
+                          Train
+                        </button>
+                        <button onClick={() => navigate(`/results/${ds.id}`)}>
+                          Results
+                        </button>
+                        <button onClick={() => handleDelete(ds.id)}>
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

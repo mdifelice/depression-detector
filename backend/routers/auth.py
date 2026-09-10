@@ -9,6 +9,7 @@ from config import (
     GOOGLE_CLIENT_SECRET,
     GOOGLE_REDIRECT_URI,
     FRONTEND_URL,
+    DISABLE_AUTH,
 )
 from auth import is_whitelisted, verify_google_token
 from models import User
@@ -109,6 +110,8 @@ async def logout(request: Request):
 
 @router.get("/me")
 async def me(request: Request):
+    if DISABLE_AUTH:
+        return {"email": "test@localhost", "name": "Test User", "picture": ""}
     if "user" not in request.session:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return request.session["user"]

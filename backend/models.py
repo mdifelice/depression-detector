@@ -11,6 +11,7 @@ class User(BaseModel):
 
 class CategoricalColumnConfig(BaseModel):
     order: list[str]
+    ordinal: bool = True
 
 
 class DatasetMetadata(BaseModel):
@@ -44,7 +45,9 @@ class DatasetInfo(BaseModel):
 
 class DatasetColumnsResponse(BaseModel):
     columns: list[str]
-    sample: list[dict]
+    sample: list[list[str]]
+    unique_value_counts: list[int]
+    null_counts: list[int]
     row_count: int
 
 
@@ -73,7 +76,7 @@ SCALING_TYPES = ["standard", "minmax", "robust"]
 
 class ModelConfig(BaseModel):
     constructor_params: dict = {}
-    param_grid: dict = {}
+    param_grid: dict | list[dict] = {}
 
 
 class TrainingSettings(BaseModel):
@@ -88,6 +91,7 @@ class TrainingSettings(BaseModel):
     row_acceptance_threshold: float = 0.75
     column_acceptance_threshold: float = 0.25
     max_ohe_unique_values: int = 10
+    max_sortable_values: int = 25
     correlation_acceptance_threshold: float = 0.6
     selected_models: list[str] = AVAILABLE_MODELS.copy()
     models: dict[str, ModelConfig] = {
@@ -107,6 +111,7 @@ class TrainingSettingsUpdate(BaseModel):
     row_acceptance_threshold: Optional[float] = None
     column_acceptance_threshold: Optional[float] = None
     max_ohe_unique_values: Optional[int] = None
+    max_sortable_values: Optional[int] = None
     correlation_acceptance_threshold: Optional[float] = None
     selected_models: Optional[list[str]] = None
     models: Optional[dict[str, ModelConfig]] = None
@@ -150,3 +155,8 @@ class PredictionResponse(BaseModel):
     prediction: int
     probability: Optional[float] = None
     label: str
+
+
+class ColumnValuesResponse(BaseModel):
+    column: str
+    unique_values: list[str]
