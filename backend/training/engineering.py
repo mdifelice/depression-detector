@@ -265,7 +265,6 @@ def engineer(
     positive_values = metadata.get("positive_values", [])
     categorical_columns = metadata.get("categorical_columns", {})
     multi_value_columns = metadata.get("multi_value_columns", [])
-    nullable_columns = metadata.get("nullable_columns", [])
 
     scaling_type = training_settings.get("scaling_type", "standard")
     max_ohe = training_settings.get("max_ohe_unique_values", 10)
@@ -293,6 +292,9 @@ def engineer(
     if target_column and target_column in df.columns:
         df, dropped_corr = drop_correlated_columns(df, target_column, corr_threshold)
         _log_shape(log_fn, "After dropping correlated columns", df)
+
+    df = df.drop_duplicates()
+    _log_shape(log_fn, "After removing duplicate rows (columns dropped)", df)
 
     exclude_cols = []
     if target_column and target_column in df.columns:

@@ -30,19 +30,6 @@ def remove_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     return df.drop(columns=existing)
 
 
-def drop_null_columns(
-    df: pd.DataFrame, nullable_columns: list[str], target_column: str | None = None
-) -> pd.DataFrame:
-    cols_to_check = [
-        c for c in df.columns if c not in nullable_columns and c != target_column
-    ]
-    drop_cols = [c for c in cols_to_check if df[c].isnull().any()]
-    if drop_cols:
-        df = df.drop(columns=drop_cols)
-        logger.info(f"Dropping columns with null values: {drop_cols}")
-    return df
-
-
 def drop_null_rows(df: pd.DataFrame, threshold: float) -> pd.DataFrame:
     if threshold >= 1.0:
         return df.dropna()
@@ -67,9 +54,9 @@ def drop_null_columns_by_threshold(
     return df[cols_to_keep]
 
 
-def fill_nullable_columns(df: pd.DataFrame, nullable_columns: list[str]) -> pd.DataFrame:
+def fill_missing_values(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     df = df.copy()
-    for col in nullable_columns:
+    for col in columns:
         if col not in df.columns:
             continue
         if df[col].dtype in ["float64", "int64", "float32", "int32"]:
@@ -98,21 +85,18 @@ def preprocess(
     df = remove_columns(df, ignore_cols)
     _log_shape(log_fn, "After removing ignored columns", df)
 
-    nullable_cols = metadata.get("nullable_columns", [])
-    target_column = metadata.get("target_column")
-    df = fill_nullable_columns(df, nullable_cols)
-    _log_shape(log_fn, "After filling nullable columns", df)
-
     row_threshold = training_settings.get("row_acceptance_threshold", 0.75)
     df = drop_null_rows(df, row_threshold)
     _log_shape(log_fn, f"After dropping null rows (threshold={row_threshold})", df)
 
-    df = drop_null_columns(df, nullable_cols, target_column)
-    _log_shape(log_fn, "After dropping columns with nulls (not marked nullable)", df)
-
+    target_column = metadata.get("target_column")
     col_threshold = training_settings.get("column_acceptance_threshold", 0.25)
     df = drop_null_columns_by_threshold(df, col_threshold, target_column)
     _log_shape(log_fn, f"After dropping columns above null threshold ({col_threshold})", df)
+
+    remaining_cols = [c for c in df.columns if c != target_column]
+    df = fill_missing_values(df, remaining_cols)
+    _log_shape(log_fn, "After filling remaining nulls", df)
 
     df = df.drop_duplicates()
     _log_shape(log_fn, "After removing duplicate rows", df)
