@@ -92,10 +92,18 @@ export default function Dashboard() {
                         <button onClick={() => navigate(`/configure/${ds.id}`)}>
                           Configure
                         </button>
-                        <button onClick={() => navigate(`/train/${ds.id}`)}>
+                        <button
+                          onClick={() => navigate(`/train/${ds.id}`)}
+                          disabled={!ds.configured}
+                          title={ds.configured ? "" : "Configure a target column before training"}
+                        >
                           Train
                         </button>
-                        <button onClick={() => navigate(`/results/${ds.id}`)}>
+                        <button
+                          onClick={() => navigate(`/results/${ds.id}`)}
+                          disabled={!ds.trained}
+                          title={ds.trained ? "" : "Train first to see results"}
+                        >
                           Results
                         </button>
                         <button onClick={() => handleDelete(ds.id)}>

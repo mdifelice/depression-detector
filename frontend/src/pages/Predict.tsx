@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { modelsApi, type ModelSchemaField, type PredictionResponse } from "../api";
+import { abbreviateName } from "../utils";
 
 export default function Predict() {
   const { id } = useParams<{ id: string }>();
@@ -12,6 +13,11 @@ export default function Predict() {
   const [predicting, setPredicting] = useState(false);
   const [prediction, setPrediction] = useState<PredictionResponse | null>(null);
   const [error, setError] = useState("");
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [browseRows, setBrowseRows] = useState<Record<string, string | number>[]>([]);
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const [browseColumns, setBrowseColumns] = useState<string[]>([]);
+  const [prefillingRandom, setPrefillingRandom] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -27,6 +33,45 @@ export default function Predict() {
       })
       .finally(() => setLoading(false));
   }, [id]);
+
+  const applyRow = (record: Record<string, string | number>) => {
+    setValues((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(record)) {
+        if (key in next) next[key] = String(record[key]);
+      }
+      return next;
+    });
+    setPrediction(null);
+  };
+
+  const handleRandom = async () => {
+    if (!id) return;
+    setPrefillingRandom(true);
+    try {
+      const res = await modelsApi.getSampleRows(id, { n: 1, random: true });
+      if (res.data.rows.length > 0) applyRow(res.data.rows[0]);
+    } catch {
+      setError("Could not load a random sample row");
+    } finally {
+      setPrefillingRandom(false);
+    }
+  };
+
+  const openBrowse = async () => {
+    if (!id) return;
+    setBrowseOpen(true);
+    setBrowseLoading(true);
+    try {
+      const res = await modelsApi.getSampleRows(id, { n: 100 });
+      setBrowseColumns(res.data.columns);
+      setBrowseRows(res.data.rows);
+    } catch {
+      setBrowseRows([]);
+    } finally {
+      setBrowseLoading(false);
+    }
+  };
 
   const handleChange = (name: string, value: string) => {
     setValues((prev) => ({ ...prev, [name]: value }));
@@ -59,11 +104,25 @@ export default function Predict() {
 
       <main>
         <form onSubmit={handleSubmit}>
+          <div className="prefill-actions">
+            <span className="prefill-label">Prefill from a real record:</span>
+            <button
+              type="button"
+              onClick={handleRandom}
+              disabled={prefillingRandom}
+            >
+              {prefillingRandom ? "Loading..." : "Random record"}
+            </button>
+            <button type="button" onClick={openBrowse}>
+              Browse records...
+            </button>
+          </div>
+
           <div className="form-grid">
             {fields.map((field) => (
               <label key={field.name}>
-                <span>
-                  {field.name} {field.required ? "*" : ""}
+                <span title={field.name}>
+                  {abbreviateName(field.name)} {field.required ? "*" : ""}
                 </span>
                 {field.type === "select" ? (
                   <select
@@ -78,29 +137,53 @@ export default function Predict() {
                     ))}
                   </select>
                 ) : field.type === "number" ? (
-                  <input
-                    type="number"
-                    step="any"
-                    value={values[field.name] || ""}
-                    onChange={(e) => handleChange(field.name, e.target.value)}
-                  />
+                  <>
+                    <input
+                      type="number"
+                      step="any"
+                      value={values[field.name] || ""}
+                      onChange={(e) => handleChange(field.name, e.target.value)}
+                    />
+                    {field.min != null && field.max != null && (
+                      <span className="field-guide">
+                        Range: {field.min} – {field.max}
+                      </span>
+                    )}
+                  </>
                 ) : field.type === "date" ? (
                   <input
                     type="date"
                     value={values[field.name] || ""}
                     onChange={(e) => handleChange(field.name, e.target.value)}
                   />
+                ) : field.type === "multi" ? (
+                  <>
+                    <input
+                      type="text"
+                      value={values[field.name] || ""}
+                      placeholder="Comma-separated values"
+                      onChange={(e) => handleChange(field.name, e.target.value)}
+                    />
+                    {field.options.length > 0 && (
+                      <span className="field-guide">
+                        Possible values: {field.options.join(", ")}
+                      </span>
+                    )}
+                  </>
                 ) : (
-                  <input
-                    type="text"
-                    value={values[field.name] || ""}
-                    placeholder={
-                      field.type === "multi"
-                        ? "Comma-separated values"
-                        : "Enter value"
-                    }
-                    onChange={(e) => handleChange(field.name, e.target.value)}
-                  />
+                  <>
+                    <input
+                      type="text"
+                      value={values[field.name] || ""}
+                      placeholder="Enter value"
+                      onChange={(e) => handleChange(field.name, e.target.value)}
+                    />
+                    {field.options.length > 0 && (
+                      <span className="field-guide">
+                        Possible values: {field.options.join(", ")}
+                      </span>
+                    )}
+                  </>
                 )}
               </label>
             ))}
@@ -132,6 +215,59 @@ export default function Predict() {
           </section>
         )}
       </main>
+
+      {browseOpen && (
+        <div className="modal-overlay" onClick={() => setBrowseOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Select a record to prefill</h2>
+            {browseLoading ? (
+              <p>Loading records...</p>
+            ) : browseRows.length === 0 ? (
+              <p>No records available.</p>
+            ) : (
+              <div className="browse-table-scroll">
+                <table className="browse-table">
+                  <thead>
+                    <tr>
+                      {browseColumns.map((c) => (
+                        <th key={c} title={c}>{abbreviateName(c)}</th>
+                      ))}
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {browseRows.map((row, i) => (
+                      <tr key={i}>
+                        {browseColumns.map((c) => (
+                          <td key={c} title={String(row[c] ?? "")}>
+                            {String(row[c] ?? "")}
+                          </td>
+                        ))}
+                        <td>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              applyRow(row);
+                              setBrowseOpen(false);
+                            }}
+                          >
+                            Use
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="modal-actions">
+              <button type="button" onClick={() => setBrowseOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

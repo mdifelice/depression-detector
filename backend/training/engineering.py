@@ -69,12 +69,17 @@ def detect_datetime_columns(df: pd.DataFrame) -> list[str]:
     return datetime_cols
 
 
-def transform_datetime(df: pd.DataFrame, datetime_cols: list[str]) -> pd.DataFrame:
+def transform_datetime(
+    df: pd.DataFrame, datetime_cols: list[str], log_fn: Callable[[str], None] | None = None
+) -> pd.DataFrame:
     df = df.copy()
     for col in datetime_cols:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors="coerce").astype("int64") // 10**9
-            logger.info(f"Converted datetime column '{col}' to timestamp")
+            message = f"Converted datetime column '{col}' to timestamp"
+            logger.info(message)
+            if log_fn:
+                log_fn(message)
     return df
 
 
@@ -83,6 +88,7 @@ def ordinal_encode(
     categorical_columns: dict,
     target_column: str | None = None,
     random_seed: int = 123,
+    log_fn: Callable[[str], None] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     df = df.copy()
     mappings = {}
@@ -103,16 +109,22 @@ def ordinal_encode(
             else:
                 df[col] = df[col].astype(int)
             mappings[col] = mapping
-            logger.info(f"Ordinal encoded '{col}': {mapping}")
+            message = f"Ordinal encoded '{col}': {mapping}"
+            logger.info(message)
+            if log_fn:
+                log_fn(message)
         else:
             unique_vals = _random_order(df[col].dropna().unique(), random_seed)
             if unique_vals:
                 mapping = {v: i for i, v in enumerate(unique_vals)}
                 df[col] = df[col].map(mapping).fillna(-1).astype(int)
                 mappings[col] = mapping
-                logger.info(
+                message = (
                     f"Ordinal encoded '{col}' (random order, seed={random_seed}): {mapping}"
                 )
+                logger.info(message)
+                if log_fn:
+                    log_fn(message)
     return df, mappings
 
 
@@ -124,9 +136,11 @@ def one_hot_encode(
     fallback_mappings: dict,
     target_column: str | None = None,
     random_seed: int = 123,
+    log_fn: Callable[[str], None] | None = None,
 ) -> tuple[pd.DataFrame, list[str]]:
     df = df.copy()
     ohe_cols_generated = []
+    added: list[str] = []
 
     for col in multi_value_columns:
         if col == target_column:
@@ -143,8 +157,12 @@ def one_hot_encode(
                 new_col = f"{col}__{val}"
                 df[new_col] = df[col].astype(str).str.contains(val, regex=False).astype(int)
                 ohe_cols_generated.append(new_col)
+                added.append(new_col)
             df = df.drop(columns=[col])
-            logger.info(f"One-hot encoded multi-value '{col}': {len(all_values)} values")
+            message = f"One-hot encoded multi-value '{col}' → {sorted(all_values)} ({len(all_values)} values)"
+            logger.info(message)
+            if log_fn:
+                log_fn(message)
 
     for col, config in categorical_columns.items():
         if col == target_column:
@@ -158,7 +176,11 @@ def one_hot_encode(
             dummies = pd.get_dummies(df[col], prefix=col, dtype=int)
             df = pd.concat([df.drop(columns=[col]), dummies], axis=1)
             ohe_cols_generated.extend(dummies.columns.tolist())
-            logger.info(f"One-hot encoded categorical '{col}': {n_unique} values")
+            added.extend(dummies.columns.tolist())
+            message = f"One-hot encoded categorical '{col}' → {list(dummies.columns)} ({n_unique} values)"
+            logger.info(message)
+            if log_fn:
+                log_fn(message)
         else:
             unique_vals = _random_order(df[col].dropna().unique(), random_seed)
             if unique_vals:
@@ -166,10 +188,13 @@ def one_hot_encode(
                 df[col] = df[col].map(mapping).fillna(-1).astype(int)
                 fallback_mappings[col] = mapping
                 ohe_cols_generated.append(col)
-                logger.info(
-                    f"Too many values ({n_unique}) for '{col}', number encoded "
-                    f"(random order, seed={random_seed})"
+                message = (
+                    f"Too many values ({n_unique}) for '{col}' (> {max_unique}), "
+                    f"number encoded instead (random order, seed={random_seed})"
                 )
+                logger.info(message)
+                if log_fn:
+                    log_fn(message)
 
     return df, ohe_cols_generated
 
@@ -194,7 +219,10 @@ def apply_scaling(df: pd.DataFrame, scaling_type: str, exclude_cols: list[str]) 
 
 
 def drop_correlated_columns(
-    df: pd.DataFrame, target_column: str, threshold: float
+    df: pd.DataFrame,
+    target_column: str,
+    threshold: float,
+    log_fn: Callable[[str], None] | None = None,
 ) -> tuple[pd.DataFrame, list[str]]:
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     if target_column in numeric_cols:
@@ -205,25 +233,46 @@ def drop_correlated_columns(
     corr_matrix = df[numeric_cols].corr().abs()
     upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
 
+    considered: list[tuple[str, str, float, str, str]] = []
     to_drop = set()
     for i in range(len(upper.columns)):
         for j in range(i):
             col_i = upper.columns[i]
             col_j = upper.index[j]
-            if upper.iloc[j, i] > threshold:
+            corr = float(upper.iloc[j, i])
+            if corr > threshold:
                 if target_column in df.columns:
                     corr_i = abs(df[col_i].corr(df[target_column]))
                     corr_j = abs(df[col_j].corr(df[target_column]))
-                    if corr_i < corr_j:
-                        to_drop.add(col_i)
+                    if corr_i <= corr_j:
+                        kept, dropped = col_j, col_i
                     else:
-                        to_drop.add(col_j)
+                        kept, dropped = col_i, col_j
                 else:
-                    to_drop.add(col_i)
+                    kept, dropped = col_j, col_i
+                to_drop.add(dropped)
+                considered.append((col_i, col_j, corr, kept, dropped))
+
+    if considered:
+        lines = [f"Correlation analysis (pairs with |r| > {threshold}):"]
+        for col_i, col_j, corr, kept, dropped in considered:
+            lines.append(
+                f"  '{col_i}' ↔ '{col_j}': |r| = {corr:.3f} > {threshold} → dropped '{dropped}' (kept '{kept}')"
+            )
+        message = "\n".join(lines)
+        logger.info(message)
+        if log_fn:
+            log_fn(message)
 
     if to_drop:
         df = df.drop(columns=list(to_drop))
-        logger.info(f"Dropped {len(to_drop)} correlated columns: {to_drop}")
+        message = (
+            f"Dropped {len(to_drop)} correlated columns "
+            f"(|r| > {threshold}, keeping the one more correlated with target): {sorted(to_drop)}"
+        )
+        logger.info(message)
+        if log_fn:
+            log_fn(message)
 
     return df, list(to_drop)
 
@@ -273,24 +322,29 @@ def engineer(
     random_seed = training_settings.get("random_seed", 123)
 
     datetime_cols = detect_datetime_columns(df)
-    df = transform_datetime(df, datetime_cols)
+    df = transform_datetime(df, datetime_cols, log_fn=log_fn)
     _log_shape(log_fn, "After datetime conversion", df)
 
     if target_column and target_column in df.columns:
         df = binarize_target(df, target_column, positive_values)
         _log_shape(log_fn, f"After binarizing target '{target_column}'", df)
 
-    df, ordinal_mappings = ordinal_encode(df, categorical_columns, target_column, random_seed)
+    df, ordinal_mappings = ordinal_encode(
+        df, categorical_columns, target_column, random_seed, log_fn=log_fn
+    )
     _log_shape(log_fn, "After categorical (sortable) encoding", df)
     fallback_mappings: dict = {}
     df, ohe_cols = one_hot_encode(
-        df, multi_value_columns, categorical_columns, max_ohe, fallback_mappings, target_column, random_seed
+        df, multi_value_columns, categorical_columns, max_ohe, fallback_mappings,
+        target_column, random_seed, log_fn=log_fn
     )
     ordinal_mappings.update(fallback_mappings)
     _log_shape(log_fn, "After one-hot / multi-value encoding", df)
 
     if target_column and target_column in df.columns:
-        df, dropped_corr = drop_correlated_columns(df, target_column, corr_threshold)
+        df, dropped_corr = drop_correlated_columns(
+            df, target_column, corr_threshold, log_fn=log_fn
+        )
         _log_shape(log_fn, "After dropping correlated columns", df)
 
     df = df.drop_duplicates()

@@ -16,6 +16,8 @@ export interface DatasetInfo {
   filename: string;
   uploaded_at: string;
   uploaded_by: string;
+  configured: boolean;
+  trained: boolean;
 }
 
 export interface CategoricalColumnConfig {
@@ -67,6 +69,7 @@ export interface TrainingSettings {
   turbo: boolean;
   random_seed: number;
   tune_iterations: number;
+  timeout: number;
   row_acceptance_threshold: number;
   column_acceptance_threshold: number;
   max_ohe_unique_values: number;
@@ -85,6 +88,7 @@ export interface TrainingSettingsUpdate {
   turbo?: boolean;
   random_seed?: number;
   tune_iterations?: number;
+  timeout?: number;
   row_acceptance_threshold?: number;
   column_acceptance_threshold?: number;
   max_ohe_unique_values?: number;
@@ -129,6 +133,7 @@ export interface SavedModelInfo {
     recall: number;
     auc: number;
   };
+  has_explanation: boolean;
 }
 
 export interface ModelSchemaField {
@@ -136,6 +141,8 @@ export interface ModelSchemaField {
   type: string;
   options: string[];
   required: boolean;
+  min?: number | null;
+  max?: number | null;
 }
 
 export interface PredictionResponse {
@@ -144,9 +151,26 @@ export interface PredictionResponse {
   label: string;
 }
 
+export interface ExplanationData {
+  feature_names: string[];
+  base_value: number;
+  shap_values: number[][];
+  feature_values: number[][];
+  sample_indices: number[];
+  predicted_labels: number[];
+  proba_positive: (number | null)[];
+  charts: string[];
+  error?: string;
+}
+
 export interface ColumnValuesResponse {
   column: string;
   unique_values: string[];
+}
+
+export interface SampleRowsResponse {
+  columns: string[];
+  rows: Record<string, string | number>[];
 }
 
 export const authApi = {
@@ -216,6 +240,20 @@ export const modelsApi = {
 
   predict: (id: string, values: Record<string, string>) =>
     api.post<PredictionResponse>(`/models/${id}/predict`, { values }),
+
+  getExplanation: (id: string) =>
+    api.get<ExplanationData>(`/models/${id}/explanation`),
+
+  getPredictionLogs: (id: string) =>
+    api.get<{ logs: Record<string, unknown>[] }>(`/models/${id}/prediction-logs`),
+
+  getSampleRows: (
+    id: string,
+    params: { n?: number; random?: boolean } = {}
+  ) =>
+    api.get<SampleRowsResponse>(`/models/${id}/sample-rows`, {
+      params: { n: params.n ?? 50, random: params.random ?? false },
+    }),
 
   delete: (id: string) => api.delete(`/models/${id}`),
 };

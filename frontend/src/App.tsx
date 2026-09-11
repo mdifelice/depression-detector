@@ -7,6 +7,7 @@ import TrainDataset from "./pages/TrainDataset";
 import TrainingProgress from "./pages/TrainingProgress";
 import SavedModels from "./pages/SavedModels";
 import Predict from "./pages/Predict";
+import Explain from "./pages/Explain";
 import "./App.css";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -71,6 +72,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Predict />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/explain/:id"
+        element={
+          <ProtectedRoute>
+            <Explain />
           </ProtectedRoute>
         }
       />

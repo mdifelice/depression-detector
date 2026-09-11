@@ -57,12 +57,21 @@ export default function SavedModels() {
                   <td>{m.metrics.recall.toFixed(4)}</td>
                   <td>{m.metrics.auc.toFixed(4)}</td>
                   <td>
-                    <button onClick={() => navigate(`/predict/${m.dataset_id}`)}>
-                      Predict
-                    </button>
-                    <button onClick={() => handleDelete(m.dataset_id)}>
-                      Delete
-                    </button>
+                    <div className="actions-row">
+                      <button onClick={() => navigate(`/predict/${m.dataset_id}`)}>
+                        Predict
+                      </button>
+                      <button
+                        onClick={() => navigate(`/explain/${m.dataset_id}`)}
+                        disabled={!m.has_explanation}
+                        title={m.has_explanation ? "" : "Not available - retrain to generate SHAP explanation"}
+                      >
+                        Explain
+                      </button>
+                      <button onClick={() => handleDelete(m.dataset_id)}>
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

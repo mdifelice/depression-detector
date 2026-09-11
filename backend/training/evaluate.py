@@ -1,7 +1,9 @@
 import importlib
 import json
 import logging
+import multiprocessing
 import os
+import signal
 import time
 from typing import Any
 
@@ -119,6 +121,89 @@ def _effective_n_splits(
 
 
 def evaluate_model(
+    model_path: str,
+    constructor_params: dict,
+    param_grid: dict,
+    X: pd.DataFrame,
+    y: pd.Series,
+    settings: dict,
+    charts_dir: str,
+    log_fn=None,
+) -> dict:
+    """Evaluate one algorithm, enforcing a per-algorithm timeout if set.
+
+    When a timeout is configured the work runs in a child process (fork) so a
+    slow algorithm can be genuinely killed once the budget is exceeded. Without
+    a timeout it runs inline like normal.
+    """
+    model_name = model_path.rsplit(".", 1)[1]
+    timeout = int(settings.get("timeout", 0) or 0)
+
+    if timeout <= 0:
+        return _run_evaluate(
+            model_path, constructor_params, param_grid, X, y, settings, charts_dir, log_fn
+        )
+
+    try:
+        ctx = multiprocessing.get_context("fork")
+    except (ValueError, AttributeError):
+        ctx = multiprocessing.get_context()
+
+    parent_conn, child_conn = ctx.Pipe(duplex=False)
+    proc = ctx.Process(
+        target=_train_worker,
+        args=(child_conn, model_path, constructor_params, param_grid,
+              X, y, settings, charts_dir, log_fn),
+    )
+    proc.start()
+    child_conn.close()
+
+    try:
+        if parent_conn.poll(timeout):
+            result = parent_conn.recv()
+            proc.join()
+            return result
+
+        msg = f"{model_name} exceeded timeout of {timeout}s - training killed"
+        if log_fn:
+            log_fn(msg)
+        logger.info(msg)
+
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.terminate()
+        proc.join()
+
+        return {
+            "model_name": model_name,
+            "model_path": model_path,
+            "error": f"Timed out after {timeout}s",
+        }
+    finally:
+        parent_conn.close()
+
+
+def _train_worker(
+    conn, model_path, constructor_params, param_grid, X, y, settings, charts_dir, log_fn
+):
+    os.setsid()
+    try:
+        result = _run_evaluate(
+            model_path, constructor_params, param_grid, X, y, settings, charts_dir, log_fn
+        )
+        conn.send(result)
+    except Exception as e:
+        conn.send({
+            "model_name": model_path.rsplit(".", 1)[1],
+            "model_path": model_path,
+            "error": str(e),
+        })
+    finally:
+        conn.close()
+
+
+def _run_evaluate(
     model_path: str,
     constructor_params: dict,
     param_grid: dict,

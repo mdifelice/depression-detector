@@ -13,3 +13,4 @@ xgboost==3.4.1
 imbalanced-learn==0.12.4
 joblib==1.4.2
 matplotlib==3.9.4
+shap[plots]==0.52.0

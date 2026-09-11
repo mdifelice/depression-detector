@@ -11,6 +11,7 @@ from config import DATA_DIR, MODELS_DIR
 from training.preprocessing import preprocess, load_dataset
 from training.engineering import engineer
 from training.evaluate import evaluate_model, select_best_model, save_model
+from training.explain import explain_model
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +233,17 @@ def _run_training(dataset_id: str, metadata: dict, training_settings: dict):
         if best:
             save_model(best, artifact, MODELS_DIR, dataset_id)
             _append_log(dataset_id, f"Best model: {best['model_name']} (AUC={best['auc']:.4f}, F1={best['f1']:.4f})")
+
+            _save_job_status(dataset_id, {
+                "dataset_id": dataset_id,
+                "status": "running",
+                "progress": 0.92,
+                "current_step": "Computing model explanations (SHAP)...",
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "completed_at": None,
+                "error": None,
+            })
+            explain_model(best["model_object"], X, y, _charts_dir(dataset_id), log_fn=log_fn)
         else:
             _append_log(dataset_id, "No valid model found")
 

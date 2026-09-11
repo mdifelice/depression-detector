@@ -41,6 +41,8 @@ class DatasetInfo(BaseModel):
     filename: str
     uploaded_at: str
     uploaded_by: str
+    configured: bool = False
+    trained: bool = False
 
 
 class DatasetColumnsResponse(BaseModel):
@@ -88,6 +90,7 @@ class TrainingSettings(BaseModel):
     turbo: bool = False
     random_seed: int = 123
     tune_iterations: int = 10
+    timeout: int = 0
     row_acceptance_threshold: float = 0.75
     column_acceptance_threshold: float = 0.25
     max_ohe_unique_values: int = 10
@@ -108,6 +111,7 @@ class TrainingSettingsUpdate(BaseModel):
     turbo: Optional[bool] = None
     random_seed: Optional[int] = None
     tune_iterations: Optional[int] = None
+    timeout: Optional[int] = None
     row_acceptance_threshold: Optional[float] = None
     column_acceptance_threshold: Optional[float] = None
     max_ohe_unique_values: Optional[int] = None
@@ -145,6 +149,7 @@ class SavedModelInfo(BaseModel):
     filename: str
     model_name: str
     metrics: dict
+    has_explanation: bool = False
 
 
 class PredictionRequest(BaseModel):
@@ -160,3 +165,8 @@ class PredictionResponse(BaseModel):
 class ColumnValuesResponse(BaseModel):
     column: str
     unique_values: list[str]
+
+
+class SampleRowsResponse(BaseModel):
+    columns: list[str]
+    rows: list[dict]

@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 from fastapi import APIRouter, File, UploadFile, HTTPException, Request
 
-from config import DATA_DIR, ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE
+from config import DATA_DIR, MODELS_DIR, ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE
 from auth import get_current_user
 from models import (
     DatasetMetadata,
@@ -114,11 +114,19 @@ async def list_datasets(request: Request):
         with open(path, "r") as f:
             meta = DatasetMetadata(**json.load(f))
         if meta.uploaded_by == user.email:
+            configured = bool(meta.target_column)
+            trained = (
+                (DATA_DIR / f"{meta.id}.job.json").exists()
+                or (DATA_DIR / meta.id / "results.json").exists()
+                or (MODELS_DIR / f"{meta.id}.joblib").exists()
+            )
             datasets.append(DatasetInfo(
                 id=meta.id,
                 filename=meta.filename,
                 uploaded_at=meta.uploaded_at,
                 uploaded_by=meta.uploaded_by,
+                configured=configured,
+                trained=trained,
             ))
     return datasets
 

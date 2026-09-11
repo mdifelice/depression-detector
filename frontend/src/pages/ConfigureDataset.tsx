@@ -9,6 +9,7 @@ import {
 } from "../api";
 import SortableList from "../components/SortableList";
 import MultiSelect from "../components/MultiSelect";
+import { abbreviateName } from "../utils";
 
 const DEFAULT_MAX_SORTABLE_VALUES = 25;
 const MAX_TARGET_VALUES = 25;
@@ -275,7 +276,7 @@ export default function ConfigureDataset() {
 
               return (
                 <tr key={col} className={isTarget ? "target-row" : ""}>
-                  <td className="col-name">{col}</td>
+                  <td className="col-name" title={col}>{abbreviateName(col)}</td>
                   <td className="col-sample">
                     {sampleVals.length > 0 ? sampleVals.join(", ") : "—"}
                   </td>

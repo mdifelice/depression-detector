@@ -35,6 +35,16 @@ export default function TrainDataset() {
         setSettings(trainRes.data);
       }
     );
+    datasetsApi
+      .getTrainingStatus(id)
+      .then((res) => {
+        if (res.data.status === "running") {
+          navigate(`/results/${id}`);
+        }
+      })
+      .catch(() => {
+        // no training job for this dataset yet
+      });
   }, [id]);
 
   const updateField = <K extends keyof TrainingSettings>(
@@ -196,6 +206,16 @@ export default function TrainDataset() {
               onChange={(e) =>
                 updateField("tune_iterations", Number(e.target.value))
               }
+            />
+          </label>
+
+          <label>
+            <span>Timeout per Algorithm (seconds, 0 = none)</span>
+            <input
+              type="number"
+              min={0}
+              value={settings.timeout}
+              onChange={(e) => updateField("timeout", Number(e.target.value))}
             />
           </label>
 
