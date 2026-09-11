@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { useParams, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   datasetsApi,
   type DatasetMetadata,
@@ -16,6 +17,7 @@ function modelDisplayName(fullName: string): string {
 
 export default function TrainDataset() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [metadata, setMetadata] = useState<DatasetMetadata | null>(null);
@@ -134,21 +136,21 @@ export default function TrainDataset() {
     }
   };
 
-  if (!metadata || !settings) return <p>Loading...</p>;
+  if (!metadata || !settings) return <p>{t("common.loading")}</p>;
 
   return (
     <div className="configure-dataset">
       <header className="sticky-header">
-        <h1>Train: {metadata.filename}</h1>
-        <button onClick={() => navigate("/dashboard")}>Back</button>
+        <h1>{t("train.title", { filename: metadata.filename })}</h1>
+        <button onClick={() => navigate("/dashboard")}>{t("common.back")}</button>
       </header>
 
       <div className="table-scroll-container">
         <section>
-          <h2>General Settings</h2>
+          <h2>{t("train.generalSettings")}</h2>
         <div className="form-grid">
           <label>
-            <span>Scaling Type</span>
+            <span>{t("train.scalingType")}</span>
             <select
               value={settings.scaling_type}
               onChange={(e) => updateField("scaling_type", e.target.value)}
@@ -162,7 +164,7 @@ export default function TrainDataset() {
           </label>
 
           <label>
-            <span>Random Seed</span>
+            <span>{t("train.randomSeed")}</span>
             <input
               type="number"
               value={settings.random_seed}
@@ -171,7 +173,7 @@ export default function TrainDataset() {
           </label>
 
           <label>
-            <span>CV Folds</span>
+            <span>{t("train.cvFolds")}</span>
             <input
               type="number"
               min={2}
@@ -183,7 +185,7 @@ export default function TrainDataset() {
           </label>
 
           <label>
-            <span>CV Tune Folds</span>
+            <span>{t("train.cvTuneFolds")}</span>
             <input
               type="number"
               min={2}
@@ -198,7 +200,7 @@ export default function TrainDataset() {
           </label>
 
           <label>
-            <span>Tune Iterations</span>
+            <span>{t("train.tuneIterations")}</span>
             <input
               type="number"
               min={1}
@@ -210,7 +212,7 @@ export default function TrainDataset() {
           </label>
 
           <label>
-            <span>Timeout per Algorithm (seconds, 0 = none)</span>
+            <span>{t("train.timeout")}</span>
             <input
               type="number"
               min={0}
@@ -220,11 +222,11 @@ export default function TrainDataset() {
           </label>
 
           <label>
-            <span>Oversampling Threshold</span>
+            <span>{t("train.oversamplingThreshold")}</span>
             <input
               type="number"
               min={0}
-              placeholder="None"
+              placeholder={t("train.none")}
               value={settings.oversampling_threshold ?? ""}
               onChange={(e) =>
                 updateField(
@@ -236,7 +238,7 @@ export default function TrainDataset() {
           </label>
 
           <label>
-            <span>Row Acceptance Threshold</span>
+            <span>{t("train.rowAcceptanceThreshold")}</span>
             <input
               type="number"
               min={0}
@@ -253,7 +255,7 @@ export default function TrainDataset() {
           </label>
 
           <label>
-            <span>Column Acceptance Threshold</span>
+            <span>{t("train.columnAcceptanceThreshold")}</span>
             <input
               type="number"
               min={0}
@@ -270,7 +272,7 @@ export default function TrainDataset() {
           </label>
 
           <label>
-            <span>Max OHE Unique Values</span>
+            <span>{t("train.maxOhe")}</span>
             <input
               type="number"
               min={2}
@@ -282,7 +284,7 @@ export default function TrainDataset() {
           </label>
 
           <label>
-            <span>Max Sortable Values</span>
+            <span>{t("train.maxSortable")}</span>
             <input
               type="number"
               min={2}
@@ -294,7 +296,7 @@ export default function TrainDataset() {
           </label>
 
           <label>
-            <span>Correlation Acceptance Threshold</span>
+            <span>{t("train.corrAcceptance")}</span>
             <input
               type="number"
               min={0}
@@ -316,7 +318,7 @@ export default function TrainDataset() {
               checked={settings.tune}
               onChange={(e) => updateField("tune", e.target.checked)}
             />
-            <span>Tune Hyperparameters</span>
+            <span>{t("train.tuneHyperparams")}</span>
           </label>
 
           <label className="checkbox-label">
@@ -325,25 +327,25 @@ export default function TrainDataset() {
               checked={settings.turbo}
               onChange={(e) => updateField("turbo", e.target.checked)}
             />
-            <span>Turbo Mode</span>
+            <span>{t("train.turboMode")}</span>
           </label>
         </div>
       </section>
 
       <section>
-        <h2>Models</h2>
+        <h2>{t("train.models")}</h2>
         <div className="model-actions">
-          <button onClick={selectAllModels}>Select All</button>
-          <button onClick={deselectAllModels}>Deselect All</button>
+          <button onClick={selectAllModels}>{t("train.selectAll")}</button>
+          <button onClick={deselectAllModels}>{t("train.deselectAll")}</button>
         </div>
         <table>
           <thead>
             <tr>
-              <th>Enabled</th>
-              <th>Model</th>
-              <th>Constructor Params</th>
-              <th>Param Grid</th>
-              <th>Actions</th>
+              <th>{t("train.enabled")}</th>
+              <th>{t("common.model")}</th>
+              <th>{t("train.constructorParams")}</th>
+              <th>{t("train.paramGrid")}</th>
+              <th className="actions-header">{t("common.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -367,9 +369,11 @@ export default function TrainDataset() {
                     <code>{JSON.stringify(cfg.param_grid)}</code>
                   </td>
                   <td>
-                    <button onClick={() => openModelEditor(modelKey)}>
-                      Edit
-                    </button>
+                    <div className="actions-row">
+                      <button onClick={() => openModelEditor(modelKey)}>
+                        {t("train.edit")}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -382,9 +386,9 @@ export default function TrainDataset() {
       {editingModel && (
         <div className="modal-overlay" onClick={() => setEditingModel(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{modelDisplayName(editingModel)}</h2>
+            <h2>{t("train.editTitle", { model: modelDisplayName(editingModel) })}</h2>
             <label>
-              <span>Constructor Params (JSON)</span>
+              <span>{t("train.constructorParamsJson")}</span>
               <textarea
                 rows={6}
                 value={JSON.stringify(modelParams, null, 2)}
@@ -397,7 +401,7 @@ export default function TrainDataset() {
               />
             </label>
             <label>
-              <span>Param Grid (JSON)</span>
+              <span>{t("train.paramGridJson")}</span>
               <textarea
                 rows={6}
                 value={JSON.stringify(modelParamGrid, null, 2)}
@@ -413,8 +417,8 @@ export default function TrainDataset() {
               />
             </label>
             <div className="modal-actions">
-              <button onClick={() => setEditingModel(null)}>Cancel</button>
-              <button onClick={saveModelConfig}>Save</button>
+              <button onClick={() => setEditingModel(null)}>{t("common.cancel")}</button>
+              <button onClick={saveModelConfig}>{t("train.save")}</button>
             </div>
           </div>
         </div>
@@ -423,10 +427,10 @@ export default function TrainDataset() {
       <section className="sticky-footer">
         <div className="actions">
           <button onClick={() => handleSave(false)} disabled={saving}>
-            {saving ? "Saving..." : "Save Training Settings"}
+            {saving ? t("common.saving") : t("train.saveTrainingSettings")}
           </button>
           <button onClick={() => handleSave(true)} disabled={saving}>
-            {saving ? "Starting..." : "Save & Start Training"}
+            {saving ? t("train.starting") : t("train.saveStartTraining")}
           </button>
         </div>
       </section>

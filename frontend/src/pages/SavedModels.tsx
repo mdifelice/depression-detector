@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { modelsApi, type SavedModelInfo } from "../api";
 
 export default function SavedModels() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [models, setModels] = useState<SavedModelInfo[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -15,7 +17,7 @@ export default function SavedModels() {
   }, []);
 
   const handleDelete = async (dataset_id: string) => {
-    if (!confirm("Delete this trained model?")) return;
+    if (!confirm(t("models.deleteConfirm"))) return;
     await modelsApi.delete(dataset_id);
     setModels((prev) => prev.filter((m) => m.dataset_id !== dataset_id));
   };
@@ -23,27 +25,27 @@ export default function SavedModels() {
   return (
     <div className="saved-models">
       <header>
-        <h1>Trained Models</h1>
-        <button onClick={() => navigate("/dashboard")}>Back</button>
+        <h1>{t("models.title")}</h1>
+        <button onClick={() => navigate("/dashboard")}>{t("common.back")}</button>
       </header>
 
       <main>
         {loading ? (
-          <p>Loading...</p>
+          <p>{t("common.loading")}</p>
         ) : models.length === 0 ? (
-          <p>No trained models yet.</p>
+          <p>{t("models.empty")}</p>
         ) : (
           <table>
             <thead>
               <tr>
-                <th>Dataset</th>
-                <th>Model</th>
-                <th>F1</th>
-                <th>Accuracy</th>
-                <th>Precision</th>
-                <th>Recall</th>
-                <th>AUC</th>
-                <th>Actions</th>
+                <th>{t("models.dataset")}</th>
+                <th>{t("models.model")}</th>
+                <th>{t("metrics.f1")}</th>
+                <th>{t("metrics.accuracy")}</th>
+                <th>{t("metrics.precision")}</th>
+                <th>{t("metrics.recall")}</th>
+                <th>{t("metrics.auc")}</th>
+                <th className="actions-header">{t("common.actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -59,17 +61,17 @@ export default function SavedModels() {
                   <td>
                     <div className="actions-row">
                       <button onClick={() => navigate(`/predict/${m.dataset_id}`)}>
-                        Predict
+                        {t("models.predict")}
                       </button>
                       <button
                         onClick={() => navigate(`/explain/${m.dataset_id}`)}
                         disabled={!m.has_explanation}
-                        title={m.has_explanation ? "" : "Not available - retrain to generate SHAP explanation"}
+                        title={m.has_explanation ? "" : t("models.explainHint")}
                       >
-                        Explain
+                        {t("models.explain")}
                       </button>
                       <button onClick={() => handleDelete(m.dataset_id)}>
-                        Delete
+                        {t("common.delete")}
                       </button>
                     </div>
                   </td>

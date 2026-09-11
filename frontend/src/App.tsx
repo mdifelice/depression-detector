@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -8,18 +9,21 @@ import TrainingProgress from "./pages/TrainingProgress";
 import SavedModels from "./pages/SavedModels";
 import Predict from "./pages/Predict";
 import Explain from "./pages/Explain";
+import Layout from "./components/Layout";
 import "./App.css";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  if (loading) return <p>Loading...</p>;
+  const { t } = useTranslation();
+  if (loading) return <p>{t("common.loading")}</p>;
   if (!user) return <Navigate to="/login" />;
-  return <>{children}</>;
+  return <Layout>{children}</Layout>;
 }
 
 function AppRoutes() {
   const { user, loading } = useAuth();
-  if (loading) return <p>Loading...</p>;
+  const { t } = useTranslation();
+  if (loading) return <p>{t("common.loading")}</p>;
 
   return (
     <Routes>

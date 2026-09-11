@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { useTranslation } from "react-i18next";
 
 interface SortableListProps {
   values: string[];
@@ -6,6 +7,7 @@ interface SortableListProps {
 }
 
 export default function SortableList({ values, onChange }: SortableListProps) {
+  const { t } = useTranslation();
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const dragItem = useRef<number | null>(null);
 
@@ -44,7 +46,7 @@ export default function SortableList({ values, onChange }: SortableListProps) {
   };
 
   if (values.length === 0) {
-    return <p className="sortable-empty">No values to sort</p>;
+    return <p className="sortable-empty">{t("configure.noValuesToSort")}</p>;
   }
 
   return (
@@ -67,7 +69,7 @@ export default function SortableList({ values, onChange }: SortableListProps) {
               className="sort-btn"
               onClick={() => moveUp(i)}
               disabled={i === 0}
-              title="Move up"
+              title={t("configure.moveUp")}
             >
               ↑
             </button>
@@ -76,7 +78,7 @@ export default function SortableList({ values, onChange }: SortableListProps) {
               className="sort-btn"
               onClick={() => moveDown(i)}
               disabled={i === values.length - 1}
-              title="Move down"
+              title={t("configure.moveDown")}
             >
               ↓
             </button>

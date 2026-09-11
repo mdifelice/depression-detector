@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { datasetsApi, type DatasetInfo } from "../api";
 import { useAuth } from "../contexts/AuthContext";
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [datasets, setDatasets] = useState<DatasetInfo[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -36,7 +38,7 @@ export default function Dashboard() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this dataset?")) return;
+    if (!confirm(t("dashboard.deleteConfirm"))) return;
     await datasetsApi.delete(id);
     await loadDatasets();
   };
@@ -44,12 +46,15 @@ export default function Dashboard() {
   return (
     <div className="dashboard">
       <header>
-        <h1>Depression Detector</h1>
+        <div className="brand">
+          <img src="/gemis.png" alt="Gemis" className="gemis-logo" />
+          <h1>{t("dashboard.title")}</h1>
+        </div>
         <div className="user-info">
-          <button onClick={() => navigate("/trained-models")}>Models</button>
+          <button onClick={() => navigate("/trained-models")}>{t("dashboard.models")}</button>
           {user?.picture && <img src={user.picture} alt="" className="avatar" />}
           <span>{user?.name}</span>
-          <button onClick={logout}>Logout</button>
+          <button onClick={logout}>{t("dashboard.logout")}</button>
         </div>
       </header>
 
@@ -66,20 +71,20 @@ export default function Dashboard() {
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
           >
-            {uploading ? "Uploading..." : "Upload Dataset"}
+            {uploading ? t("dashboard.uploading") : t("dashboard.upload")}
           </button>
         </div>
 
         <div className="dataset-list">
           {datasets.length === 0 ? (
-            <p>No datasets uploaded yet.</p>
+            <p>{t("dashboard.empty")}</p>
           ) : (
             <table>
               <thead>
                 <tr>
-                  <th>Filename</th>
-                  <th>Uploaded</th>
-                  <th>Actions</th>
+                  <th>{t("dashboard.filename")}</th>
+                  <th>{t("dashboard.uploaded")}</th>
+                  <th className="actions-header">{t("common.actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -90,24 +95,24 @@ export default function Dashboard() {
                     <td>
                       <div className="actions-row">
                         <button onClick={() => navigate(`/configure/${ds.id}`)}>
-                          Configure
+                          {t("dashboard.configure")}
                         </button>
                         <button
                           onClick={() => navigate(`/train/${ds.id}`)}
                           disabled={!ds.configured}
-                          title={ds.configured ? "" : "Configure a target column before training"}
+                          title={ds.configured ? "" : t("dashboard.configureHint")}
                         >
-                          Train
+                          {t("dashboard.train")}
                         </button>
                         <button
                           onClick={() => navigate(`/results/${ds.id}`)}
                           disabled={!ds.trained}
-                          title={ds.trained ? "" : "Train first to see results"}
+                          title={ds.trained ? "" : t("dashboard.trainHint")}
                         >
-                          Results
+                          {t("dashboard.results")}
                         </button>
                         <button onClick={() => handleDelete(ds.id)}>
-                          Delete
+                          {t("common.delete")}
                         </button>
                       </div>
                     </td>

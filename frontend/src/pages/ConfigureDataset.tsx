@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   datasetsApi,
   type DatasetMetadata,
@@ -9,7 +10,6 @@ import {
 } from "../api";
 import SortableList from "../components/SortableList";
 import MultiSelect from "../components/MultiSelect";
-import { abbreviateName } from "../utils";
 
 const DEFAULT_MAX_SORTABLE_VALUES = 25;
 const MAX_TARGET_VALUES = 25;
@@ -25,6 +25,7 @@ function isNumericSample(vals: string[]): boolean {
 
 export default function ConfigureDataset() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [metadata, setMetadata] = useState<DatasetMetadata | null>(null);
@@ -227,32 +228,32 @@ export default function ConfigureDataset() {
     }
   };
 
-  if (!metadata || !columns) return <p>Loading...</p>;
+  if (!metadata || !columns) return <p>{t("common.loading")}</p>;
 
   return (
     <div className="configure-dataset">
       <header className="sticky-header">
-        <h1>Configure: {metadata.filename}</h1>
-        <button onClick={() => navigate("/dashboard")}>Back</button>
+        <h1>{t("configure.title", { filename: metadata.filename })}</h1>
+        <button onClick={() => navigate("/dashboard")}>{t("common.back")}</button>
       </header>
 
       <section>
-        <h2>Dataset Info</h2>
-        <p>Rows: {columns.row_count}</p>
-        <p>Columns: {columns.columns.length}</p>
+        <h2>{t("configure.datasetInfo")}</h2>
+        <p>{t("configure.rows", { count: columns.row_count })}</p>
+        <p>{t("configure.columns", { count: columns.columns.length })}</p>
       </section>
 
       <div className="table-scroll-container">
         <table>
           <thead>
             <tr>
-              <th>Column</th>
-              <th>Sample Values</th>
-              <th>Ignore</th>
-              <th>Allow Null</th>
-              <th>Target</th>
-              <th>Categorical</th>
-              <th>Multi-value</th>
+              <th>{t("configure.column")}</th>
+              <th>{t("configure.sampleValues")}</th>
+              <th>{t("configure.ignore")}</th>
+              <th>{t("configure.allowNull")}</th>
+              <th>{t("configure.target")}</th>
+              <th>{t("configure.categorical")}</th>
+              <th>{t("configure.multiValue")}</th>
             </tr>
           </thead>
           <tbody>
@@ -276,7 +277,7 @@ export default function ConfigureDataset() {
 
               return (
                 <tr key={col} className={isTarget ? "target-row" : ""}>
-                  <td className="col-name" title={col}>{abbreviateName(col)}</td>
+                  <td className="col-name" title={col}>{col}</td>
                   <td className="col-sample">
                     {sampleVals.length > 0 ? sampleVals.join(", ") : "—"}
                   </td>
@@ -297,7 +298,7 @@ export default function ConfigureDataset() {
                       />
                       {nullCount > 0 && (
                         <span className="categorical-hint">
-                          {nullCount} null
+                          {t("configure.nullCount", { count: nullCount })}
                         </span>
                       )}
                     </div>
@@ -312,13 +313,13 @@ export default function ConfigureDataset() {
                         disabled={isIgnored || !isTargetEligible}
                         title={
                           !isTargetEligible && !isIgnored
-                            ? `Too many values (${uniqueCount} > ${MAX_TARGET_VALUES})`
+                            ? t("configure.tooManyValues", { count: uniqueCount, max: MAX_TARGET_VALUES })
                             : ""
                         }
                       />
                       {isTarget && (
                         <div className="target-positive-values">
-                          <span className="target-label">Positive:</span>
+                          <span className="target-label">{t("configure.positive")}</span>
                           <MultiSelect
                             options={
                               uniqueValuesCache[col] ||
@@ -327,13 +328,13 @@ export default function ConfigureDataset() {
                             }
                             selected={positiveValues}
                             onChange={setPositiveValues}
-                            placeholder="Select positive values..."
+                            placeholder={t("configure.selectPositive")}
                           />
                         </div>
                       )}
                       {isIgnored && (
                         <span className="categorical-hint">
-                          Column ignored
+                          {t("configure.columnIgnored")}
                         </span>
                       )}
                     </div>
@@ -349,7 +350,7 @@ export default function ConfigureDataset() {
                             onChange={() => setCategoricalMode(col, "none")}
                             disabled={isIgnored}
                           />
-                          <span>No</span>
+                          <span>{t("configure.no")}</span>
                         </label>
                         <label className="categorical-option">
                           <input
@@ -361,7 +362,7 @@ export default function ConfigureDataset() {
                             }
                             disabled={isIgnored}
                           />
-                          <span>Categorical</span>
+                          <span>{t("configure.categorical")}</span>
                         </label>
                         <label
                           className={`categorical-option ${
@@ -369,7 +370,7 @@ export default function ConfigureDataset() {
                           }`}
                           title={
                             !isSortableEligible && !isIgnored
-                              ? `Too many values (${uniqueCount} > ${maxSortableValues})`
+                              ? t("configure.tooManyValues", { count: uniqueCount, max: maxSortableValues })
                               : ""
                           }
                         >
@@ -383,7 +384,7 @@ export default function ConfigureDataset() {
                             disabled={isIgnored || !isSortableEligible}
                           />
                           <span>
-                            Sortable {uniqueCount > 0 && `(${uniqueCount})`}
+                            {t(`configure.sortable${uniqueCount > 0 ? "" : "_zero"}`, { count: uniqueCount })}
                           </span>
                         </label>
                       </div>
@@ -396,15 +397,13 @@ export default function ConfigureDataset() {
                             }
                           />
                           <span className="categorical-hint">
-                            Order must be ascending (lowest → highest)
+                            {t("configure.orderHint")}
                           </span>
                         </>
                       )}
                       {categoricalMode === "categorical" && (
                         <span className="categorical-hint">
-                          One-hot encoded if ≤{" "}
-                          {training?.max_ohe_unique_values ?? 10} values,
-                          otherwise numeric
+                          {t("configure.oheHint", { count: training?.max_ohe_unique_values ?? 10 })}
                         </span>
                       )}
                     </div>
@@ -426,7 +425,7 @@ export default function ConfigureDataset() {
 
       <section className="sticky-footer">
         <button onClick={handleSave} disabled={saving}>
-          {saving ? "Saving..." : "Save Configuration"}
+          {saving ? t("common.saving") : t("configure.save")}
         </button>
       </section>
     </div>

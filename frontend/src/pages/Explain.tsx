@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { modelsApi, type ExplanationData } from "../api";
-import { abbreviateName } from "../utils";
 
 export default function Explain() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [data, setData] = useState<ExplanationData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,17 +21,17 @@ export default function Explain() {
         if (res.data.error) setError(res.data.error);
       })
       .catch((err) => {
-        setError(err.response?.data?.detail || "Failed to load explanation");
+        setError(err.response?.data?.detail || t("explain.fail"));
       })
       .finally(() => setLoading(false));
   }, [id]);
 
-  if (loading) return <div className="explanation"><p>Loading explanation...</p></div>;
+  if (loading) return <div className="explanation"><p>{t("explain.loading")}</p></div>;
   if (error && !data) return (
     <div className="explanation">
       <header>
-        <h1>Model Explanation</h1>
-        <button onClick={() => navigate(-1)}>Back</button>
+        <h1>{t("explain.title")}</h1>
+        <button onClick={() => navigate(-1)}>{t("common.back")}</button>
       </header>
       <p className="error-text">{error}</p>
     </div>
@@ -39,10 +40,10 @@ export default function Explain() {
   if (!data || !data.feature_names.length) return (
     <div className="explanation">
       <header>
-        <h1>Model Explanation</h1>
-        <button onClick={() => navigate(-1)}>Back</button>
+        <h1>{t("explain.title")}</h1>
+        <button onClick={() => navigate(-1)}>{t("common.back")}</button>
       </header>
-      <p>No explanation data available.</p>
+      <p>{t("explain.noData")}</p>
     </div>
   );
 
@@ -82,9 +83,9 @@ export default function Explain() {
   return (
     <div className="explanation">
       <header>
-        <h1>Model Explanation</h1>
+        <h1>{t("explain.title")}</h1>
         <div className="explanation-actions">
-          <button onClick={() => navigate(-1)}>Back</button>
+          <button onClick={() => navigate(-1)}>{t("common.back")}</button>
         </div>
       </header>
 
@@ -92,13 +93,13 @@ export default function Explain() {
 
       {/* GLOBAL */}
       <section className="explanation-global">
-        <h2>Global Feature Importance</h2>
+        <h2>{t("explain.global")}</h2>
         <div className="chart-row">
           {importanceChart && (
             <div className="chart-card">
               <img
                 src={`/static/${id}/charts/${importanceChart}`}
-                alt="Feature importance"
+                alt={t("explain.importanceAlt")}
               />
             </div>
           )}
@@ -106,7 +107,7 @@ export default function Explain() {
             <div className="chart-card">
               <img
                 src={`/static/${id}/charts/${beeswarmChart}`}
-                alt="SHAP beeswarm summary"
+                alt={t("explain.beeswarmAlt")}
               />
             </div>
           )}
@@ -116,11 +117,11 @@ export default function Explain() {
       {/* LOCAL */}
       {nSamples > 0 && (
         <section className="explanation-local">
-          <h2>Local Explanation</h2>
+          <h2>{t("explain.local")}</h2>
 
           <div className="local-controls">
             <label>
-              Sample row
+              {t("explain.sampleRow")}
               <select
                 value={selected}
                 onChange={(e) => setSelected(Number(e.target.value))}
@@ -130,7 +131,11 @@ export default function Explain() {
                   const probStr = prob != null ? ` (${(prob * 100).toFixed(1)}%)` : "";
                   return (
                     <option key={i} value={i}>
-                      Row {idx} — {predicted_labels[i] === 1 ? "positive" : "negative"}{probStr}
+                      {t("explain.rowLabel", {
+                        idx,
+                        label: predicted_labels[i] === 1 ? t("predict.positive") : t("predict.negative"),
+                        prob: probStr,
+                      })}
                     </option>
                   );
                 })}
@@ -143,20 +148,20 @@ export default function Explain() {
               <div className="chart-card waterfall-chart">
                 <img
                   src={`/static/${id}/charts/${waterfallCharts[selected]}`}
-                  alt={`Waterfall for sample row ${sample_indices[selected]}`}
+                  alt={t("explain.waterfallAlt", { index: sample_indices[selected] })}
                 />
               </div>
             )}
           </div>
 
-          <h3>Per-feature contributions</h3>
+          <h3>{t("explain.perFeature")}</h3>
           <table className="shap-table">
             <thead>
               <tr>
-                <th>Feature</th>
-                <th>Value</th>
-                <th>SHAP</th>
-                <th>Effect</th>
+                <th>{t("explain.feature")}</th>
+                <th>{t("explain.value")}</th>
+                <th>{t("explain.shap")}</th>
+                <th>{t("explain.effect")}</th>
               </tr>
             </thead>
             <tbody>
@@ -165,7 +170,7 @@ export default function Explain() {
                 const cls = c.shap > 0 ? "positive" : "negative";
                 return (
                   <tr key={c.name}>
-                    <td className="feature-name" title={c.name}>{abbreviateName(c.name)}</td>
+                    <td className="feature-name" title={c.name}>{c.name}</td>
                     <td>{c.value.toFixed(4)}</td>
                     <td>{c.shap > 0 ? "+" : ""}{c.shap.toFixed(4)}</td>
                     <td className="bar-cell">

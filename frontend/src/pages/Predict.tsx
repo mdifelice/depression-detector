@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { modelsApi, type ModelSchemaField, type PredictionResponse } from "../api";
-import { abbreviateName } from "../utils";
 
 export default function Predict() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [fields, setFields] = useState<ModelSchemaField[]>([]);
@@ -52,7 +53,7 @@ export default function Predict() {
       const res = await modelsApi.getSampleRows(id, { n: 1, random: true });
       if (res.data.rows.length > 0) applyRow(res.data.rows[0]);
     } catch {
-      setError("Could not load a random sample row");
+      setError(t("predict.randomFail"));
     } finally {
       setPrefillingRandom(false);
     }
@@ -87,34 +88,34 @@ export default function Predict() {
       const res = await modelsApi.predict(id, values);
       setPrediction(res.data);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Prediction failed");
+      setError(err instanceof Error ? err.message : t("predict.fail"));
     } finally {
       setPredicting(false);
     }
   };
 
-  if (loading) return <p>Loading...</p>;
+  if (loading) return <p>{t("common.loading")}</p>;
 
   return (
     <div className="predict-page">
       <header>
-        <h1>Make a Prediction</h1>
-        <button onClick={() => navigate("/trained-models")}>Back</button>
+        <h1>{t("predict.title")}</h1>
+        <button onClick={() => navigate("/trained-models")}>{t("common.back")}</button>
       </header>
 
       <main>
         <form onSubmit={handleSubmit}>
           <div className="prefill-actions">
-            <span className="prefill-label">Prefill from a real record:</span>
+            <span className="prefill-label">{t("predict.prefill")}</span>
             <button
               type="button"
               onClick={handleRandom}
               disabled={prefillingRandom}
             >
-              {prefillingRandom ? "Loading..." : "Random record"}
+              {prefillingRandom ? t("common.loading") : t("predict.randomRecord")}
             </button>
             <button type="button" onClick={openBrowse}>
-              Browse records...
+              {t("predict.browseRecords")}
             </button>
           </div>
 
@@ -122,14 +123,14 @@ export default function Predict() {
             {fields.map((field) => (
               <label key={field.name}>
                 <span title={field.name}>
-                  {abbreviateName(field.name)} {field.required ? "*" : ""}
+                  {field.name} {field.required ? "*" : ""}
                 </span>
                 {field.type === "select" ? (
                   <select
                     value={values[field.name] || ""}
                     onChange={(e) => handleChange(field.name, e.target.value)}
                   >
-                    <option value="">Select...</option>
+                    <option value="">{t("predict.select")}</option>
                     {field.options.map((opt) => (
                       <option key={opt} value={opt}>
                         {opt}
@@ -146,7 +147,7 @@ export default function Predict() {
                     />
                     {field.min != null && field.max != null && (
                       <span className="field-guide">
-                        Range: {field.min} – {field.max}
+                        {t("predict.range", { min: field.min, max: field.max })}
                       </span>
                     )}
                   </>
@@ -161,12 +162,12 @@ export default function Predict() {
                     <input
                       type="text"
                       value={values[field.name] || ""}
-                      placeholder="Comma-separated values"
+                      placeholder={t("predict.commaSeparated")}
                       onChange={(e) => handleChange(field.name, e.target.value)}
                     />
                     {field.options.length > 0 && (
                       <span className="field-guide">
-                        Possible values: {field.options.join(", ")}
+                        {t("predict.possibleValues", { values: field.options.join(", ") })}
                       </span>
                     )}
                   </>
@@ -175,12 +176,12 @@ export default function Predict() {
                     <input
                       type="text"
                       value={values[field.name] || ""}
-                      placeholder="Enter value"
+                      placeholder={t("predict.enterValue")}
                       onChange={(e) => handleChange(field.name, e.target.value)}
                     />
                     {field.options.length > 0 && (
                       <span className="field-guide">
-                        Possible values: {field.options.join(", ")}
+                        {t("predict.possibleValues", { values: field.options.join(", ") })}
                       </span>
                     )}
                   </>
@@ -191,7 +192,7 @@ export default function Predict() {
 
           <section className="actions">
             <button type="submit" disabled={predicting}>
-              {predicting ? "Predicting..." : "Predict"}
+              {predicting ? t("predict.predicting") : t("predict.predict")}
             </button>
           </section>
         </form>
@@ -200,16 +201,18 @@ export default function Predict() {
 
         {prediction && (
           <section className="prediction-result">
-            <h2>Prediction Result</h2>
+            <h2>{t("predict.result")}</h2>
             <div className="prediction-card">
               <span className={`prediction-badge ${prediction.label.includes("positive") ? "badge-positive" : "badge-negative"}`}>
                 {prediction.label.toUpperCase()}
               </span>
               <p>
-                Prediction: {prediction.prediction === 1 ? "Positive" : "Negative"}
+                {t("predict.predictionValue", {
+                  value: prediction.prediction === 1 ? t("predict.positive") : t("predict.negative"),
+                })}
               </p>
               {prediction.probability != null && (
-                <p>Probability: {prediction.probability.toFixed(4)}</p>
+                <p>{t("predict.probability", { value: prediction.probability.toFixed(4) })}</p>
               )}
             </div>
           </section>
@@ -219,18 +222,18 @@ export default function Predict() {
       {browseOpen && (
         <div className="modal-overlay" onClick={() => setBrowseOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Select a record to prefill</h2>
+            <h2>{t("predict.browseTitle")}</h2>
             {browseLoading ? (
-              <p>Loading records...</p>
+              <p>{t("predict.loadingRecords")}</p>
             ) : browseRows.length === 0 ? (
-              <p>No records available.</p>
+              <p>{t("predict.noRecords")}</p>
             ) : (
               <div className="browse-table-scroll">
                 <table className="browse-table">
                   <thead>
                     <tr>
                       {browseColumns.map((c) => (
-                        <th key={c} title={c}>{abbreviateName(c)}</th>
+                        <th key={c} title={c}>{c}</th>
                       ))}
                       <th />
                     </tr>
@@ -251,7 +254,7 @@ export default function Predict() {
                               setBrowseOpen(false);
                             }}
                           >
-                            Use
+                            {t("predict.use")}
                           </button>
                         </td>
                       </tr>
@@ -262,7 +265,7 @@ export default function Predict() {
             )}
             <div className="modal-actions">
               <button type="button" onClick={() => setBrowseOpen(false)}>
-                Close
+                {t("common.close")}
               </button>
             </div>
           </div>

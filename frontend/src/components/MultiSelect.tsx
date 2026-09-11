@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 
 interface MultiSelectProps {
   options: string[];
@@ -11,8 +12,9 @@ export default function MultiSelect({
   options,
   selected,
   onChange,
-  placeholder = "Select values...",
+  placeholder,
 }: MultiSelectProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -48,8 +50,8 @@ export default function MultiSelect({
       >
         <span>
           {selected.length > 0
-            ? `${selected.length} selected`
-            : placeholder}
+            ? t("configure.selected", { count: selected.length })
+            : placeholder ?? t("configure.selectValues")}
         </span>
         <span className="multi-select-arrow">{open ? "▲" : "▼"}</span>
       </button>
@@ -71,7 +73,7 @@ export default function MultiSelect({
         <div className="multi-select-dropdown">
           <ul className="multi-select-options">
             {options.length === 0 && (
-              <li className="multi-select-empty">No values available</li>
+              <li className="multi-select-empty">{t("configure.noValuesAvailable")}</li>
             )}
             {options.map((val) => (
               <li
