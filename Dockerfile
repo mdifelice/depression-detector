@@ -10,7 +10,7 @@ ARG VITE_API_URL=""
 RUN npm run build
 
 # --- backend dependencies stage (cache pip layer) ---
-FROM python:3.13-slim AS backend
+FROM python:3.12-slim AS backend
 
 WORKDIR /app/backend
 COPY backend/requirements.txt .
@@ -18,13 +18,13 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # --- runtime: nginx + FastAPI behind it ---
-FROM python:3.13-slim
+FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         nginx supervisor curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=backend /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=backend /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 
 COPY backend/ /app/backend/
 COPY --from=frontend /app/dist /usr/share/nginx/html

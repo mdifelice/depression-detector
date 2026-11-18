@@ -23,7 +23,11 @@
     "accuracy": "Accuracy",
     "precision": "Precision",
     "recall": "Recall",
-    "auc": "AUC"
+    "auc": "AUC",
+    "specificity": "Specificity",
+    "ks": "KS",
+    "lift": "Lift@10",
+    "trainTime": "Time (s)"
   },
   "login": {
     "title": "Depression Detector",
@@ -112,7 +116,12 @@
     "save": "Save",
     "saveTrainingSettings": "Save Training Settings",
     "saveStartTraining": "Save & Start Training",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "testRatio": "Test Ratio",
+    "useSampling": "Balance classes (SMOTE / undersampling)",
+    "useShap": "SHAP explanations (global, after training)",
+    "useLime": "LIME explanations (per prediction)",
+    "useAnchor": "Anchor explanations (per prediction)"
   },
   "results": {
     "title": "Training Progress",
@@ -157,7 +166,34 @@
     "browseTitle": "Select a record to prefill",
     "loadingRecords": "Loading records...",
     "noRecords": "No records available.",
-    "use": "Use"
+    "use": "Use",
+    "explainTitle": "Why this prediction?",
+    "explaining": "Computing LIME and Anchor explanations...",
+    "explainFail": "Could not compute the explanations",
+    "limeTitle": "LIME",
+    "limeHint": "The 5 features that matter most for this input. Positive weights push towards the positive class, negative weights towards the negative class.",
+    "limeHintRegression": "The 5 features that matter most for this input. Positive weights raise the model output, negative weights lower it.",
+    "limeRule": "Condition",
+    "limeWeight": "Weight",
+    "limeProba": "Model probability: {{negative}}% negative / {{positive}}% positive.",
+    "limeScore": "Local fit R²: {{value}}.",
+    "anchorTitle": "Anchor",
+    "anchorHint": "A rule that is true for this input and keeps the prediction the same for (almost) every similar input.",
+    "anchorIf": "IF",
+    "anchorThen": "THEN the prediction is {{value}}",
+    "anchorNone": "No condition is needed: the model predicts {{value}} for almost any similar input.",
+    "anchorPrecision": "Precision: {{value}}%",
+    "anchorCoverage": "Coverage: {{value}}%",
+    "anchorBelow": "No rule reached the {{threshold}}% precision target, so this is only the best candidate found. Don't read it as a reliable rule.",
+    "anchorUnavailable": "Anchor is not available.",
+    "legendTitle": "How categories were encoded",
+    "definitionsTitle": "Definitions",
+    "defLimeScoreTerm": "Local fit R²",
+    "defLimeScore": "Measures how well LIME's simple model reproduces the real model around this input. Good: close to 1 (above about 0.7). Low values mean the weights are only a rough guide.",
+    "defPrecisionTerm": "Precision (Anchor)",
+    "defPrecision": "Measures how often the model gives the same prediction among similar inputs that satisfy the rule. Good: 95% or more.",
+    "defCoverageTerm": "Coverage (Anchor)",
+    "defCoverage": "Measures the share of similar inputs that satisfy the rule. Good: as high as possible without losing precision; there's no fixed threshold."
   },
   "explain": {
     "title": "Model Explanation",
@@ -175,6 +211,15 @@
     "feature": "Feature",
     "value": "Value",
     "shap": "SHAP",
-    "effect": "Effect"
+    "effect": "Effect",
+    "testRows_one": "{{count}} test row",
+    "testRows_other": "{{count}} test rows",
+    "dependenceAlt": "SHAP dependence for {{feature}}",
+    "allFeatures_one": "SHAP values of the feature",
+    "allFeatures_other": "SHAP values of all {{count}} features",
+    "allFeaturesHint": "Averaged over the explained test rows. Mean |SHAP| is how much a feature moves the prediction on average; the signed mean shows its overall direction (positive = towards the positive class).",
+    "meanAbs": "Mean |SHAP|",
+    "importance": "Importance",
+    "meanSigned": "Mean SHAP"
   }
 }

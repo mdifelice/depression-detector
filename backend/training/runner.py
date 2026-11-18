@@ -9,9 +9,9 @@ from pathlib import Path
 
 from config import DATA_DIR, MODELS_DIR
 from training.preprocessing import preprocess, load_dataset
-from training.engineering import engineer
+from training.engineering import engineer, split_train_test, drop_correlated_columns
 from training.evaluate import evaluate_model, select_best_model, save_model
-from training.explain import explain_model
+from training.explain import explain_model, clear_shap_outputs
 
 logger = logging.getLogger(__name__)
 
@@ -103,16 +103,22 @@ def get_charts(dataset_id: str) -> list[str]:
 
 
 def _run_training(dataset_id: str, metadata: dict, training_settings: dict):
-    try:
+    started_at = datetime.now(timezone.utc).isoformat()
+
+    def set_status(status: str, progress: float, step: str, error: str | None = None):
+        done = status in ("completed", "failed")
         _save_job_status(dataset_id, {
             "dataset_id": dataset_id,
-            "status": "running",
-            "progress": 0.0,
-            "current_step": "Starting...",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "completed_at": None,
-            "error": None,
+            "status": status,
+            "progress": round(progress, 3),
+            "current_step": step,
+            "started_at": started_at,
+            "completed_at": datetime.now(timezone.utc).isoformat() if done else None,
+            "error": error,
         })
+
+    try:
+        set_status("running", 0.0, "Starting...")
 
         def log_fn(msg):
             _append_log(dataset_id, msg)
@@ -125,42 +131,16 @@ def _run_training(dataset_id: str, metadata: dict, training_settings: dict):
 
         _append_log(dataset_id, "=== Training Started ===")
         _append_log(dataset_id, f"Dataset: {filename}")
+        clear_shap_outputs(_charts_dir(dataset_id))
 
-        _save_job_status(dataset_id, {
-            "dataset_id": dataset_id,
-            "status": "running",
-            "progress": 0.1,
-            "current_step": "Loading dataset...",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "completed_at": None,
-            "error": None,
-        })
-
+        set_status("running", 0.1, "Loading dataset...")
         df = load_dataset(str(dataset_file))
         _append_log(dataset_id, f"Loaded dataset: {len(df)} rows × {len(df.columns)} columns")
 
-        _save_job_status(dataset_id, {
-            "dataset_id": dataset_id,
-            "status": "running",
-            "progress": 0.2,
-            "current_step": "Preprocessing...",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "completed_at": None,
-            "error": None,
-        })
-
+        set_status("running", 0.2, "Preprocessing...")
         df = preprocess(df, metadata, training_settings, log_fn=log_fn)
 
-        _save_job_status(dataset_id, {
-            "dataset_id": dataset_id,
-            "status": "running",
-            "progress": 0.4,
-            "current_step": "Engineering features...",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "completed_at": None,
-            "error": None,
-        })
-
+        set_status("running", 0.3, "Engineering features...")
         artifact = engineer(df, metadata, training_settings, log_fn=log_fn)
         engineered_df = artifact["dataframe"]
 
@@ -176,6 +156,21 @@ def _run_training(dataset_id: str, metadata: dict, training_settings: dict):
         _append_log(dataset_id, f"Features: {len(feature_names)}, Samples: {len(X)}")
         _append_log(dataset_id, f"Class distribution: {y.value_counts().to_dict()}")
 
+        random_seed = training_settings.get("random_seed", 123)
+        X_train, X_test, y_train, y_test = split_train_test(
+            X, y, training_settings.get("test_ratio", 0.2), random_seed, log_fn=log_fn
+        )
+
+        correlated = drop_correlated_columns(
+            X_train, y_train,
+            training_settings.get("correlation_acceptance_threshold", 0.8),
+            log_fn=log_fn,
+        )
+        if correlated:
+            X_train = X_train.drop(columns=correlated)
+            X_test = X_test.drop(columns=correlated)
+        _append_log(dataset_id, f"Model features: {len(X_train.columns)}")
+
         selected_models = training_settings.get("selected_models", [])
         models_config = training_settings.get("models", {})
         charts = _charts_dir(dataset_id)
@@ -184,18 +179,11 @@ def _run_training(dataset_id: str, metadata: dict, training_settings: dict):
         total = len(selected_models)
 
         for i, model_path in enumerate(selected_models):
-            progress = 0.4 + (0.5 * (i / total))
             model_name = model_path.rsplit(".", 1)[1]
-
-            _save_job_status(dataset_id, {
-                "dataset_id": dataset_id,
-                "status": "running",
-                "progress": round(progress, 3),
-                "current_step": f"Training {model_name} ({i+1}/{total})...",
-                "started_at": datetime.now(timezone.utc).isoformat(),
-                "completed_at": None,
-                "error": None,
-            })
+            set_status(
+                "running", 0.4 + (0.5 * (i / total)),
+                f"Training {model_name} ({i+1}/{total})...",
+            )
 
             cfg = models_config.get(model_path, {})
             constructor_params = cfg.get("constructor_params", {})
@@ -203,20 +191,12 @@ def _run_training(dataset_id: str, metadata: dict, training_settings: dict):
 
             result = evaluate_model(
                 model_path, constructor_params, param_grid,
-                X, y, training_settings, charts, log_fn
+                X_train, X_test, y_train, y_test,
+                training_settings, charts, log_fn,
             )
             results.append(result)
 
-        _save_job_status(dataset_id, {
-            "dataset_id": dataset_id,
-            "status": "running",
-            "progress": 0.9,
-            "current_step": "Selecting best model...",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "completed_at": None,
-            "error": None,
-        })
-
+        set_status("running", 0.9, "Selecting best model...")
         best = select_best_model(results)
 
         results_summary = []
@@ -231,46 +211,27 @@ def _run_training(dataset_id: str, metadata: dict, training_settings: dict):
             json.dump(results_summary, f, indent=2)
 
         if best:
-            save_model(best, artifact, MODELS_DIR, dataset_id)
+            save_model(best, artifact, MODELS_DIR, dataset_id, X_train, training_settings)
             _append_log(dataset_id, f"Best model: {best['model_name']} (AUC={best['auc']:.4f}, F1={best['f1']:.4f})")
 
-            _save_job_status(dataset_id, {
-                "dataset_id": dataset_id,
-                "status": "running",
-                "progress": 0.92,
-                "current_step": "Computing model explanations (SHAP)...",
-                "started_at": datetime.now(timezone.utc).isoformat(),
-                "completed_at": None,
-                "error": None,
-            })
-            explain_model(best["model_object"], X, y, _charts_dir(dataset_id), log_fn=log_fn)
+            if training_settings.get("use_shap", True):
+                set_status("running", 0.92, "Computing model explanations (SHAP)...")
+                explain_model(
+                    best["model_object"], X_train, X_test, y_test, charts,
+                    random_seed=random_seed, model_name=best["model_name"], log_fn=log_fn,
+                )
+            else:
+                _append_log(dataset_id, "SHAP explanations disabled in the training settings")
         else:
             _append_log(dataset_id, "No valid model found")
 
         _append_log(dataset_id, "=== Training Complete ===")
-
-        _save_job_status(dataset_id, {
-            "dataset_id": dataset_id,
-            "status": "completed",
-            "progress": 1.0,
-            "current_step": "Done",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-            "error": None,
-        })
+        set_status("completed", 1.0, "Done")
 
     except Exception as e:
         tb = traceback.format_exc()
         _append_log(dataset_id, f"ERROR: {e}\n{tb}")
-        _save_job_status(dataset_id, {
-            "dataset_id": dataset_id,
-            "status": "failed",
-            "progress": 0.0,
-            "current_step": f"Failed: {e}",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-            "error": str(e),
-        })
+        set_status("failed", 0.0, f"Failed: {e}", error=str(e))
 
 
 def start_training(dataset_id: str, metadata: dict, training_settings: dict):

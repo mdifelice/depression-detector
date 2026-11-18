@@ -1,7 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { modelsApi, type ExplanationData } from "../api";
+import { modelsApi, type ExplanationData, type GlobalImportance } from "../api";
+
+function formatValue(v: number): string {
+  return Number.isInteger(v) ? String(v) : v.toFixed(4);
+}
+
+function signed(v: number, digits = 4): string {
+  return `${v > 0 ? "+" : ""}${v.toFixed(digits)}`;
+}
 
 export default function Explain() {
   const { id } = useParams<{ id: string }>();
@@ -26,23 +34,44 @@ export default function Explain() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  // Every feature, ranked by mean |SHAP| over all explained test rows. Explanations
+  // saved by older versions don't carry it, so fall back to the sample rows.
+  const globalRows: GlobalImportance[] = useMemo(() => {
+    if (!data) return [];
+    if (data.global_importance?.length) return data.global_importance;
+    return data.feature_names
+      .map((feature, j) => {
+        const column = data.shap_values.map((row) => row[j] ?? 0);
+        const n = Math.max(column.length, 1);
+        return {
+          feature,
+          mean_abs_shap: column.reduce((a, b) => a + Math.abs(b), 0) / n,
+          mean_shap: column.reduce((a, b) => a + b, 0) / n,
+        };
+      })
+      .sort((a, b) => b.mean_abs_shap - a.mean_abs_shap);
+  }, [data]);
+
+  const header = (
+    <header>
+      <h1>{t("explain.title")}</h1>
+      <div className="explanation-actions">
+        <button onClick={() => navigate(-1)}>{t("common.back")}</button>
+      </div>
+    </header>
+  );
+
   if (loading) return <div className="explanation"><p>{t("explain.loading")}</p></div>;
   if (error && !data) return (
     <div className="explanation">
-      <header>
-        <h1>{t("explain.title")}</h1>
-        <button onClick={() => navigate(-1)}>{t("common.back")}</button>
-      </header>
+      {header}
       <p className="error-text">{error}</p>
     </div>
   );
 
   if (!data || !data.feature_names.length) return (
     <div className="explanation">
-      <header>
-        <h1>{t("explain.title")}</h1>
-        <button onClick={() => navigate(-1)}>{t("common.back")}</button>
-      </header>
+      {header}
       <p>{t("explain.noData")}</p>
     </div>
   );
@@ -57,11 +86,13 @@ export default function Explain() {
     charts,
   } = data;
 
-  const nSamples = sample_indices.length;
-  if (selected >= nSamples && nSamples > 0) setSelected(0);
+  const version = data.generated_at ? `?v=${encodeURIComponent(data.generated_at)}` : "";
+  const chartUrl = (name: string) => `/static/${id}/charts/${name}${version}`;
 
-  const importanceChart = charts.find((c) => c === "shap_importance.png");
-  const beeswarmChart  = charts.find((c) => c === "shap_beeswarm.png");
+  const nSamples = sample_indices.length;
+  const current = selected < nSamples ? selected : 0;
+
+  const hasChart = (name: string) => charts.includes(name);
   const waterfallCharts = charts
     .filter((c) => c.startsWith("shap_waterfall_"))
     .sort((a, b) => {
@@ -70,24 +101,31 @@ export default function Explain() {
       return na - nb;
     });
 
+  const maxGlobal = Math.max(...globalRows.map((r) => r.mean_abs_shap), 1e-9);
+
   const rowContributions = feature_names
     .map((name, j) => ({
       name,
-      shap: shap_values[selected]?.[j] ?? 0,
-      value: feature_values[selected]?.[j] ?? 0,
+      shap: shap_values[current]?.[j] ?? 0,
+      value: feature_values[current]?.[j] ?? 0,
     }))
     .sort((a, b) => Math.abs(b.shap) - Math.abs(a.shap));
 
   const maxAbs = Math.max(...rowContributions.map((c) => Math.abs(c.shap)), 1e-9);
 
+  const subtitleParts = [
+    data.model_name,
+    data.explainer,
+    data.n_explained != null ? t("explain.testRows", { count: data.n_explained }) : null,
+  ].filter(Boolean);
+
   return (
     <div className="explanation">
-      <header>
-        <h1>{t("explain.title")}</h1>
-        <div className="explanation-actions">
-          <button onClick={() => navigate(-1)}>{t("common.back")}</button>
-        </div>
-      </header>
+      {header}
+
+      {subtitleParts.length > 0 && (
+        <p className="explanation-subtitle">{subtitleParts.join(" · ")}</p>
+      )}
 
       {error && <p className="error-text">{error}</p>}
 
@@ -95,23 +133,55 @@ export default function Explain() {
       <section className="explanation-global">
         <h2>{t("explain.global")}</h2>
         <div className="chart-row">
-          {importanceChart && (
+          {hasChart("shap_beeswarm.png") && (
             <div className="chart-card">
-              <img
-                src={`/static/${id}/charts/${importanceChart}`}
-                alt={t("explain.importanceAlt")}
-              />
+              <img src={chartUrl("shap_beeswarm.png")} alt={t("explain.beeswarmAlt")} />
             </div>
           )}
-          {beeswarmChart && (
+          {hasChart("shap_importance.png") && (
+            <div className="chart-card">
+              <img src={chartUrl("shap_importance.png")} alt={t("explain.importanceAlt")} />
+            </div>
+          )}
+          {hasChart("shap_dependence.png") && (
             <div className="chart-card">
               <img
-                src={`/static/${id}/charts/${beeswarmChart}`}
-                alt={t("explain.beeswarmAlt")}
+                src={chartUrl("shap_dependence.png")}
+                alt={t("explain.dependenceAlt", { feature: data.top_feature ?? "" })}
               />
             </div>
           )}
         </div>
+
+        <h3>{t("explain.allFeatures", { count: globalRows.length })}</h3>
+        <p className="explanation-hint">{t("explain.allFeaturesHint")}</p>
+        <table className="shap-table shap-table-wide">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>{t("explain.feature")}</th>
+              <th>{t("explain.meanAbs")}</th>
+              <th>{t("explain.importance")}</th>
+              <th>{t("explain.meanSigned")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {globalRows.map((r, i) => (
+              <tr key={r.feature}>
+                <td>{i + 1}</td>
+                <td className="feature-name" title={r.feature}>{r.feature}</td>
+                <td>{r.mean_abs_shap.toFixed(4)}</td>
+                <td className="bar-cell">
+                  <span
+                    className="bar neutral"
+                    style={{ width: `${(r.mean_abs_shap / maxGlobal) * 100}%` }}
+                  />
+                </td>
+                <td>{signed(r.mean_shap)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
 
       {/* LOCAL */}
@@ -123,7 +193,7 @@ export default function Explain() {
             <label>
               {t("explain.sampleRow")}
               <select
-                value={selected}
+                value={current}
                 onChange={(e) => setSelected(Number(e.target.value))}
               >
                 {sample_indices.map((idx, i) => {
@@ -144,11 +214,11 @@ export default function Explain() {
           </div>
 
           <div className="local-charts">
-            {waterfallCharts[selected] && (
+            {waterfallCharts[current] && (
               <div className="chart-card waterfall-chart">
                 <img
-                  src={`/static/${id}/charts/${waterfallCharts[selected]}`}
-                  alt={t("explain.waterfallAlt", { index: sample_indices[selected] })}
+                  src={chartUrl(waterfallCharts[current])}
+                  alt={t("explain.waterfallAlt", { index: sample_indices[current] })}
                 />
               </div>
             )}
@@ -171,8 +241,8 @@ export default function Explain() {
                 return (
                   <tr key={c.name}>
                     <td className="feature-name" title={c.name}>{c.name}</td>
-                    <td>{c.value.toFixed(4)}</td>
-                    <td>{c.shap > 0 ? "+" : ""}{c.shap.toFixed(4)}</td>
+                    <td>{formatValue(c.value)}</td>
+                    <td>{signed(c.shap)}</td>
                     <td className="bar-cell">
                       <span className={`bar ${cls}`} style={{ width: `${barPct}%` }} />
                     </td>

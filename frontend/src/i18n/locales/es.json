@@ -23,7 +23,11 @@
     "accuracy": "Exactitud",
     "precision": "Precisión",
     "recall": "Sensibilidad",
-    "auc": "AUC"
+    "auc": "AUC",
+    "specificity": "Especificidad",
+    "ks": "KS",
+    "lift": "Lift@10",
+    "trainTime": "Tiempo (s)"
   },
   "login": {
     "title": "Detector de Depresión",
@@ -112,7 +116,12 @@
     "save": "Guardar",
     "saveTrainingSettings": "Guardar configuración de entrenamiento",
     "saveStartTraining": "Guardar e iniciar entrenamiento",
-    "starting": "Iniciando..."
+    "starting": "Iniciando...",
+    "testRatio": "Proporción de prueba",
+    "useSampling": "Balancear clases (SMOTE / submuestreo)",
+    "useShap": "Explicaciones SHAP (globales, tras el entrenamiento)",
+    "useLime": "Explicaciones LIME (por predicción)",
+    "useAnchor": "Explicaciones Anchor (por predicción)"
   },
   "results": {
     "title": "Progreso del entrenamiento",
@@ -157,7 +166,34 @@
     "browseTitle": "Selecciona un registro para prellenar",
     "loadingRecords": "Cargando registros...",
     "noRecords": "No hay registros disponibles.",
-    "use": "Usar"
+    "use": "Usar",
+    "explainTitle": "¿Por qué esta predicción?",
+    "explaining": "Calculando explicaciones LIME y Anchor...",
+    "explainFail": "No se pudieron calcular las explicaciones",
+    "limeTitle": "LIME",
+    "limeHint": "Las 5 características que más importan para este caso. Los pesos positivos empujan hacia la clase positiva y los negativos hacia la clase negativa.",
+    "limeHintRegression": "Las 5 características que más importan para este caso. Los pesos positivos aumentan la salida del modelo y los negativos la reducen.",
+    "limeRule": "Condición",
+    "limeWeight": "Peso",
+    "limeProba": "Probabilidad del modelo: {{negative}}% negativo / {{positive}}% positivo.",
+    "limeScore": "R² del ajuste local: {{value}}.",
+    "anchorTitle": "Anchor",
+    "anchorHint": "Una regla que se cumple para este caso y mantiene la misma predicción en (casi) todos los casos parecidos.",
+    "anchorIf": "SI",
+    "anchorThen": "ENTONCES la predicción es {{value}}",
+    "anchorNone": "No hace falta ninguna condición: el modelo predice {{value}} para casi cualquier caso parecido.",
+    "anchorPrecision": "Precisión: {{value}}%",
+    "anchorCoverage": "Cobertura: {{value}}%",
+    "anchorBelow": "Ninguna regla alcanzó la precisión objetivo del {{threshold}}%, así que esta es solo la mejor candidata encontrada. No la leas como una regla fiable.",
+    "anchorUnavailable": "Anchor no está disponible.",
+    "legendTitle": "Cómo se codificaron las categorías",
+    "definitionsTitle": "Definiciones",
+    "defLimeScoreTerm": "R² del ajuste local",
+    "defLimeScore": "Mide qué tan bien el modelo simple de LIME reproduce al modelo real alrededor de este caso. Buen valor: cercano a 1. Valores bajos indican que los pesos son solo una guía aproximada.",
+    "defPrecisionTerm": "Precisión (Anchor)",
+    "defPrecision": "Mide qué tan seguido el modelo da la misma predicción entre los casos parecidos que cumplen la regla. Buen valor: Cuanto más alto mejor",
+    "defCoverageTerm": "Cobertura (Anchor)",
+    "defCoverage": "Mide el porcentaje de casos parecidos que cumplen la regla. Buen valor: lo más alto posible sin perder precisión."
   },
   "explain": {
     "title": "Explicación del modelo",
@@ -175,6 +211,15 @@
     "feature": "Característica",
     "value": "Valor",
     "shap": "SHAP",
-    "effect": "Efecto"
+    "effect": "Efecto",
+    "testRows_one": "{{count}} fila de prueba",
+    "testRows_other": "{{count}} filas de prueba",
+    "dependenceAlt": "Dependencia SHAP de {{feature}}",
+    "allFeatures_one": "Valores SHAP de la característica",
+    "allFeatures_other": "Valores SHAP de las {{count}} características",
+    "allFeaturesHint": "Promediados sobre las filas de prueba explicadas. |SHAP| medio es cuánto mueve una característica la predicción en promedio; el promedio con signo muestra su dirección general (positivo = hacia la clase positiva).",
+    "meanAbs": "|SHAP| medio",
+    "importance": "Importancia",
+    "meanSigned": "SHAP medio"
   }
 }

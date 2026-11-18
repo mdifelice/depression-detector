@@ -1,11 +1,9 @@
 import logging
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
-from imblearn.over_sampling import SMOTE
-from imblearn.under_sampling import RandomUnderSampler
+from sklearn.model_selection import train_test_split
 
 logger = logging.getLogger(__name__)
 
@@ -199,109 +197,88 @@ def one_hot_encode(
     return df, ohe_cols_generated
 
 
-def apply_scaling(df: pd.DataFrame, scaling_type: str, exclude_cols: list[str]) -> tuple[pd.DataFrame, Any]:
-    df = df.copy()
-    feature_cols = [c for c in df.columns if c not in exclude_cols]
+def split_train_test(
+    X: pd.DataFrame,
+    y: pd.Series,
+    test_ratio: float,
+    random_seed: int,
+    log_fn: Callable[[str], None] | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    """Stratified train/test split. Everything fitted later (feature selection,
+    scaling, sampling, model) only ever sees the training part."""
+    can_stratify = y.nunique() > 1 and int(y.value_counts().min()) >= 2
+    if not can_stratify:
+        message = "Not enough samples in one class to stratify the train/test split"
+        logger.warning(message)
+        if log_fn:
+            log_fn(message)
 
-    scalers = {
-        "standard": StandardScaler,
-        "minmax": MinMaxScaler,
-        "robust": RobustScaler,
-    }
-    scaler_cls = scalers.get(scaling_type, StandardScaler)
-    scaler = scaler_cls()
-
-    if feature_cols:
-        df[feature_cols] = scaler.fit_transform(df[feature_cols])
-        logger.info(f"Applied {scaling_type} scaling to {len(feature_cols)} columns")
-
-    return df, scaler
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=test_ratio,
+        random_state=random_seed,
+        stratify=y if can_stratify else None,
+    )
+    message = f"Train/test split: {len(X_train)} train rows, {len(X_test)} test rows (test_ratio={test_ratio})"
+    logger.info(message)
+    if log_fn:
+        log_fn(message)
+    return X_train, X_test, y_train, y_test
 
 
 def drop_correlated_columns(
-    df: pd.DataFrame,
-    target_column: str,
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
     threshold: float,
     log_fn: Callable[[str], None] | None = None,
-) -> tuple[pd.DataFrame, list[str]]:
-    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    if target_column in numeric_cols:
-        numeric_cols.remove(target_column)
-    if len(numeric_cols) < 2:
-        return df, []
+) -> list[str]:
+    """Find highly correlated feature pairs using the training data only.
 
-    corr_matrix = df[numeric_cols].corr().abs()
-    upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+    For every pair with |r| > threshold the column that is less correlated with
+    the target is dropped (ties drop the first column of the pair). Returns the
+    columns to drop; the caller removes them from both train and test.
+    """
+    target = "__target__"
+    data = pd.concat([X_train, y_train.rename(target)], axis=1)
+    corr = data.corr(numeric_only=True).abs()
+    if target not in corr.columns:
+        return []
 
-    considered: list[tuple[str, str, float, str, str]] = []
-    to_drop = set()
-    for i in range(len(upper.columns)):
-        for j in range(i):
-            col_i = upper.columns[i]
-            col_j = upper.index[j]
-            corr = float(upper.iloc[j, i])
-            if corr > threshold:
-                if target_column in df.columns:
-                    corr_i = abs(df[col_i].corr(df[target_column]))
-                    corr_j = abs(df[col_j].corr(df[target_column]))
-                    if corr_i <= corr_j:
-                        kept, dropped = col_j, col_i
-                    else:
-                        kept, dropped = col_i, col_j
-                else:
-                    kept, dropped = col_j, col_i
-                to_drop.add(dropped)
-                considered.append((col_i, col_j, corr, kept, dropped))
+    upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+    features = [c for c in upper.columns if c != target]
+
+    def target_corr(col: str) -> float:
+        value = corr.loc[col, target]
+        return 0.0 if pd.isna(value) else float(value)
+
+    considered: list[tuple[str, str, float, str]] = []
+    to_drop: set[str] = set()
+    for col1 in features:
+        for col2 in features:
+            value = upper.loc[col2, col1]
+            if pd.isna(value) or value <= threshold:
+                continue
+            dropped = col1 if target_corr(col1) <= target_corr(col2) else col2
+            to_drop.add(dropped)
+            considered.append((col1, col2, float(value), dropped))
 
     if considered:
-        lines = [f"Correlation analysis (pairs with |r| > {threshold}):"]
-        for col_i, col_j, corr, kept, dropped in considered:
-            lines.append(
-                f"  '{col_i}' ↔ '{col_j}': |r| = {corr:.3f} > {threshold} → dropped '{dropped}' (kept '{kept}')"
-            )
+        lines = [f"Correlation analysis, train only (pairs with |r| > {threshold}):"]
+        for col1, col2, value, dropped in considered:
+            lines.append(f"  '{col1}' ↔ '{col2}': |r| = {value:.3f} → dropped '{dropped}'")
         message = "\n".join(lines)
         logger.info(message)
         if log_fn:
             log_fn(message)
 
     if to_drop:
-        df = df.drop(columns=list(to_drop))
-        message = (
-            f"Dropped {len(to_drop)} correlated columns "
-            f"(|r| > {threshold}, keeping the one more correlated with target): {sorted(to_drop)}"
-        )
+        message = f"Dropped {len(to_drop)} correlated columns (train-only analysis): {sorted(to_drop)}"
         logger.info(message)
         if log_fn:
             log_fn(message)
 
-    return df, list(to_drop)
-
-
-def balance_data(
-    df: pd.DataFrame, target_column: str, threshold: int | None, random_seed: int
-) -> pd.DataFrame:
-    if target_column not in df.columns:
-        return df
-
-    X = df.drop(columns=[target_column])
-    y = df[target_column]
-
-    n_rows = len(df)
-    use_smote = threshold is not None and n_rows > threshold
-
-    if use_smote:
-        min_class_count = y.value_counts().min()
-        k_neighbors = min(5, min_class_count - 1) if min_class_count > 1 else 1
-        sampler = SMOTE(random_state=random_seed, k_neighbors=k_neighbors)
-        logger.info(f"Applying SMOTE (rows={n_rows}, threshold={threshold})")
-    else:
-        sampler = RandomUnderSampler(random_state=random_seed)
-        logger.info(f"Applying RandomUnderSampler (rows={n_rows})")
-
-    X_res, y_res = sampler.fit_resample(X, y)
-    result = pd.concat([X_res, y_res], axis=1)
-    logger.info(f"After balancing: {len(result)} rows")
-    return result
+    return sorted(to_drop)
 
 
 def engineer(
@@ -310,15 +287,18 @@ def engineer(
     training_settings: dict,
     log_fn: Callable[[str], None] | None = None,
 ) -> dict:
+    """Encode the dataset into a numeric frame.
+
+    Scaling, class balancing and correlation filtering are deliberately NOT done
+    here: they are fitted on the training split only (see split_train_test,
+    drop_correlated_columns and the model pipeline in evaluate.py).
+    """
     target_column = metadata.get("target_column")
     positive_values = metadata.get("positive_values", [])
     categorical_columns = metadata.get("categorical_columns", {})
     multi_value_columns = metadata.get("multi_value_columns", [])
 
-    scaling_type = training_settings.get("scaling_type", "standard")
     max_ohe = training_settings.get("max_ohe_unique_values", 10)
-    corr_threshold = training_settings.get("correlation_acceptance_threshold", 0.6)
-    oversampling_threshold = training_settings.get("oversampling_threshold")
     random_seed = training_settings.get("random_seed", 123)
 
     datetime_cols = detect_datetime_columns(df)
@@ -341,31 +321,16 @@ def engineer(
     ordinal_mappings.update(fallback_mappings)
     _log_shape(log_fn, "After one-hot / multi-value encoding", df)
 
-    if target_column and target_column in df.columns:
-        df, dropped_corr = drop_correlated_columns(
-            df, target_column, corr_threshold, log_fn=log_fn
-        )
-        _log_shape(log_fn, "After dropping correlated columns", df)
-
+    # Duplicates are removed before the split so identical rows can't end up on
+    # both sides of it.
     df = df.drop_duplicates()
-    _log_shape(log_fn, "After removing duplicate rows (columns dropped)", df)
-
-    exclude_cols = []
-    if target_column and target_column in df.columns:
-        exclude_cols.append(target_column)
-    df, scaler = apply_scaling(df, scaling_type, exclude_cols)
-    _log_shape(log_fn, f"After applying {scaling_type} scaling", df)
-
-    if target_column and target_column in df.columns:
-        df = balance_data(df, target_column, oversampling_threshold, random_seed)
-        _log_shape(log_fn, "After balancing classes", df)
+    _log_shape(log_fn, "After removing duplicate rows", df)
 
     feature_names = [c for c in df.columns if c != target_column]
 
     return {
         "dataframe": df,
         "feature_names": feature_names,
-        "scaler": scaler,
         "ordinal_mappings": ordinal_mappings,
         "ohe_columns": ohe_cols,
         "datetime_columns": datetime_cols,

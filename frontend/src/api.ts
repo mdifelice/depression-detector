@@ -65,7 +65,9 @@ export interface TrainingSettings {
   cross_validation_folds: number;
   cross_validation_tune_folds: number;
   scaling_type: string;
+  use_sampling: boolean;
   oversampling_threshold: number | null;
+  test_ratio: number;
   turbo: boolean;
   random_seed: number;
   tune_iterations: number;
@@ -75,6 +77,9 @@ export interface TrainingSettings {
   max_ohe_unique_values: number;
   max_sortable_values: number;
   correlation_acceptance_threshold: number;
+  use_shap: boolean;
+  use_lime: boolean;
+  use_anchor: boolean;
   selected_models: string[];
   models: Record<string, ModelConfig>;
 }
@@ -84,7 +89,9 @@ export interface TrainingSettingsUpdate {
   cross_validation_folds?: number;
   cross_validation_tune_folds?: number;
   scaling_type?: string;
+  use_sampling?: boolean;
   oversampling_threshold?: number | null;
+  test_ratio?: number;
   turbo?: boolean;
   random_seed?: number;
   tune_iterations?: number;
@@ -94,6 +101,9 @@ export interface TrainingSettingsUpdate {
   max_ohe_unique_values?: number;
   max_sortable_values?: number;
   correlation_acceptance_threshold?: number;
+  use_shap?: boolean;
+  use_lime?: boolean;
+  use_anchor?: boolean;
   selected_models?: string[];
   models?: Record<string, ModelConfig>;
 }
@@ -115,7 +125,11 @@ export interface ModelResult {
   accuracy?: number | null;
   precision?: number | null;
   recall?: number | null;
+  specificity?: number | null;
   auc?: number | null;
+  ks?: number | null;
+  lift_at_10?: number | null;
+  train_time?: number | null;
   is_best: boolean;
   roc_chart?: string | null;
   confusion_matrix_chart?: string | null;
@@ -132,6 +146,10 @@ export interface SavedModelInfo {
     precision: number;
     recall: number;
     auc: number;
+    specificity?: number;
+    ks?: number;
+    lift_at_10?: number;
+    train_time?: number;
   };
   has_explanation: boolean;
 }
@@ -149,18 +167,67 @@ export interface PredictionResponse {
   prediction: number;
   probability: number | null;
   label: string;
+  explain_methods: string[];
+}
+
+export interface GlobalImportance {
+  feature: string;
+  mean_abs_shap: number;
+  mean_shap: number;
 }
 
 export interface ExplanationData {
+  model_name?: string | null;
+  explainer?: string;
+  generated_at?: string;
+  n_explained?: number;
   feature_names: string[];
   base_value: number;
+  global_importance?: GlobalImportance[];
+  top_feature?: string;
   shap_values: number[][];
   feature_values: number[][];
-  sample_indices: number[];
+  sample_indices: (number | string)[];
   predicted_labels: number[];
   proba_positive: (number | null)[];
   charts: string[];
   error?: string;
+}
+
+export interface LimeFeature {
+  rule: string;
+  feature: string;
+  value: number;
+  weight: number;
+}
+
+export interface LimeExplanation {
+  mode?: "classification" | "regression";
+  features?: LimeFeature[];
+  intercept?: number;
+  local_pred?: number;
+  score?: number;
+  predict_proba?: number[];
+  seconds?: number;
+  error?: string;
+}
+
+export interface AnchorExplanation {
+  prediction?: number;
+  anchor?: string[];
+  precision?: number;
+  coverage?: number;
+  threshold?: number;
+  seconds?: number;
+  error?: string;
+}
+
+export interface PredictionExplanation {
+  methods: string[];
+  instance: { feature: string; value: number }[];
+  legend: Record<string, Record<string, string>>;
+  lime?: LimeExplanation;
+  anchor?: AnchorExplanation;
 }
 
 export interface ColumnValuesResponse {
@@ -243,6 +310,9 @@ export const modelsApi = {
 
   getExplanation: (id: string) =>
     api.get<ExplanationData>(`/models/${id}/explanation`),
+
+  explainPrediction: (id: string, values: Record<string, string>) =>
+    api.post<PredictionExplanation>(`/models/${id}/explain-prediction`, { values }),
 
   getPredictionLogs: (id: string) =>
     api.get<{ logs: Record<string, unknown>[] }>(`/models/${id}/prediction-logs`),

@@ -44,7 +44,10 @@ export default function SavedModels() {
                 <th>{t("metrics.accuracy")}</th>
                 <th>{t("metrics.precision")}</th>
                 <th>{t("metrics.recall")}</th>
+                <th>{t("metrics.specificity")}</th>
                 <th>{t("metrics.auc")}</th>
+                <th>{t("metrics.ks")}</th>
+                <th>{t("metrics.lift")}</th>
                 <th className="actions-header">{t("common.actions")}</th>
               </tr>
             </thead>
@@ -57,7 +60,10 @@ export default function SavedModels() {
                   <td>{m.metrics.accuracy.toFixed(4)}</td>
                   <td>{m.metrics.precision.toFixed(4)}</td>
                   <td>{m.metrics.recall.toFixed(4)}</td>
+                  <td>{m.metrics.specificity?.toFixed(4) ?? "-"}</td>
                   <td>{m.metrics.auc.toFixed(4)}</td>
+                  <td>{m.metrics.ks?.toFixed(4) ?? "-"}</td>
+                  <td>{m.metrics.lift_at_10?.toFixed(2) ?? "-"}</td>
                   <td>
                     <div className="actions-row">
                       <button onClick={() => navigate(`/predict/${m.dataset_id}`)}>

@@ -86,16 +86,21 @@ class TrainingSettings(BaseModel):
     cross_validation_folds: int = 5
     cross_validation_tune_folds: int = 5
     scaling_type: str = "standard"
+    use_sampling: bool = False
     oversampling_threshold: Optional[int] = None
+    test_ratio: float = 0.2
     turbo: bool = False
     random_seed: int = 123
-    tune_iterations: int = 10
+    tune_iterations: int = 50
     timeout: int = 0
     row_acceptance_threshold: float = 0.75
     column_acceptance_threshold: float = 0.25
     max_ohe_unique_values: int = 10
     max_sortable_values: int = 25
-    correlation_acceptance_threshold: float = 0.6
+    correlation_acceptance_threshold: float = 0.8
+    use_shap: bool = True
+    use_lime: bool = True
+    use_anchor: bool = True
     selected_models: list[str] = AVAILABLE_MODELS.copy()
     models: dict[str, ModelConfig] = {
         m: ModelConfig() for m in AVAILABLE_MODELS
@@ -107,7 +112,9 @@ class TrainingSettingsUpdate(BaseModel):
     cross_validation_folds: Optional[int] = None
     cross_validation_tune_folds: Optional[int] = None
     scaling_type: Optional[str] = None
+    use_sampling: Optional[bool] = None
     oversampling_threshold: Optional[int] = None
+    test_ratio: Optional[float] = None
     turbo: Optional[bool] = None
     random_seed: Optional[int] = None
     tune_iterations: Optional[int] = None
@@ -117,6 +124,9 @@ class TrainingSettingsUpdate(BaseModel):
     max_ohe_unique_values: Optional[int] = None
     max_sortable_values: Optional[int] = None
     correlation_acceptance_threshold: Optional[float] = None
+    use_shap: Optional[bool] = None
+    use_lime: Optional[bool] = None
+    use_anchor: Optional[bool] = None
     selected_models: Optional[list[str]] = None
     models: Optional[dict[str, ModelConfig]] = None
 
@@ -137,7 +147,11 @@ class ModelResult(BaseModel):
     accuracy: Optional[float] = None
     precision: Optional[float] = None
     recall: Optional[float] = None
+    specificity: Optional[float] = None
     auc: Optional[float] = None
+    ks: Optional[float] = None
+    lift_at_10: Optional[float] = None
+    train_time: Optional[float] = None
     is_best: bool = False
     roc_chart: Optional[str] = None
     confusion_matrix_chart: Optional[str] = None
@@ -160,6 +174,7 @@ class PredictionResponse(BaseModel):
     prediction: int
     probability: Optional[float] = None
     label: str
+    explain_methods: list[str] = []
 
 
 class ColumnValuesResponse(BaseModel):

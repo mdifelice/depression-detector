@@ -173,6 +173,18 @@ export default function TrainDataset() {
           </label>
 
           <label>
+            <span>{t("train.testRatio")}</span>
+            <input
+              type="number"
+              min={0.05}
+              max={0.95}
+              step={0.05}
+              value={settings.test_ratio}
+              onChange={(e) => updateField("test_ratio", Number(e.target.value))}
+            />
+          </label>
+
+          <label>
             <span>{t("train.cvFolds")}</span>
             <input
               type="number"
@@ -328,6 +340,42 @@ export default function TrainDataset() {
               onChange={(e) => updateField("turbo", e.target.checked)}
             />
             <span>{t("train.turboMode")}</span>
+          </label>
+
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={settings.use_sampling}
+              onChange={(e) => updateField("use_sampling", e.target.checked)}
+            />
+            <span>{t("train.useSampling")}</span>
+          </label>
+
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={settings.use_shap}
+              onChange={(e) => updateField("use_shap", e.target.checked)}
+            />
+            <span>{t("train.useShap")}</span>
+          </label>
+
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={settings.use_lime}
+              onChange={(e) => updateField("use_lime", e.target.checked)}
+            />
+            <span>{t("train.useLime")}</span>
+          </label>
+
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={settings.use_anchor}
+              onChange={(e) => updateField("use_anchor", e.target.checked)}
+            />
+            <span>{t("train.useAnchor")}</span>
           </label>
         </div>
       </section>

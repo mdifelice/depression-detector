@@ -17,7 +17,7 @@ from models import (
     SavedModelInfo,
     SampleRowsResponse,
 )
-from training.explain import SHAP_DATA_FILENAME
+from training.explain import SHAP_DATA_FILENAME, explain_instance, instance_methods
 
 router = APIRouter(prefix="/models", tags=["models"])
 
@@ -285,8 +285,24 @@ def _encode_input(values: dict, model_data: dict, metadata: DatasetMetadata) -> 
         if col not in df.columns:
             df[col] = 0
 
-    df = df[feature_names]
+    df = df[feature_names].apply(pd.to_numeric, errors="coerce")
+    missing = [c for c in feature_names if df[c].isna().any()]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing or invalid value for: {', '.join(missing)}",
+        )
     return df
+
+
+def _encoding_legend(model_data: dict, max_values: int = 30) -> dict[str, dict[str, str]]:
+    """code -> original value for ordinal-encoded columns, so LIME/Anchor rules such as
+    'Health_condition <= 1.00' can be read in terms of the original categories."""
+    legend: dict[str, dict[str, str]] = {}
+    for col, mapping in model_data.get("ordinal_mappings", {}).items():
+        if 0 < len(mapping) <= max_values and col in model_data.get("feature_names", []):
+            legend[col] = {str(int(code)): str(value) for value, code in mapping.items()}
+    return legend
 
 
 @router.post("/{dataset_id}/predict", response_model=PredictionResponse)
@@ -296,7 +312,9 @@ async def predict(dataset_id: str, request: Request, payload: PredictionRequest)
     model_data = _get_model_data(dataset_id)
 
     df = _encode_input(payload.values, model_data, metadata)
-    scaler = model_data["scaler"]
+    # Models saved by the current training are pipelines that scale internally; older
+    # artifacts kept a separate scaler.
+    scaler = model_data.get("scaler")
     if scaler is not None:
         df = pd.DataFrame(scaler.transform(df), columns=df.columns)
 
@@ -323,7 +341,33 @@ async def predict(dataset_id: str, request: Request, payload: PredictionRequest)
     }
     _log_prediction(dataset_id, payload.values, result)
 
-    return PredictionResponse(**result)
+    return PredictionResponse(**result, explain_methods=instance_methods(model_data))
+
+
+# Deliberately a plain `def`: LIME/Anchor take seconds, so FastAPI runs this in its
+# worker thread pool instead of blocking the event loop.
+@router.post("/{dataset_id}/explain-prediction")
+def explain_prediction(dataset_id: str, request: Request, payload: PredictionRequest):
+    get_current_user(request)
+    metadata = _load_metadata(dataset_id)
+    model_data = _get_model_data(dataset_id)
+
+    methods = instance_methods(model_data)
+    if not methods:
+        raise HTTPException(
+            status_code=409,
+            detail="This model was trained with an older version. Retrain it to get LIME and Anchor explanations.",
+        )
+
+    df = _encode_input(payload.values, model_data, metadata)
+    explanations = explain_instance(model_data, df, methods)
+
+    return {
+        "methods": methods,
+        "instance": [{"feature": c, "value": float(df[c].iloc[0])} for c in df.columns],
+        "legend": _encoding_legend(model_data),
+        **explanations,
+    }
 
 
 @router.get("/{dataset_id}/prediction-logs")

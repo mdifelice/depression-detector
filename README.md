@@ -15,7 +15,7 @@ depression-detector/
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.10+ (3.12 recommended, see "Explainability" below)
 - Node.js 18+
 - A Google Cloud project with OAuth 2.0 credentials
 
@@ -88,6 +88,28 @@ python cli.py remove user@example.com
 # List all whitelisted emails
 python cli.py list
 ```
+
+## Explainability
+
+Trained models are explained with the same methods as the reference notebook:
+
+| Method | Where | Notes |
+|--------|-------|-------|
+| SHAP | **Explain** button | Computed after training on the held-out test split. Trees use `TreeExplainer`, linear models `LinearExplainer`, anything else `KernelExplainer`. Shows the SHAP value of every feature. |
+| LIME | **Predict** button | Top 5 features for the submitted input. |
+| Anchor | **Predict** button | Rule that keeps the prediction stable (precision target 95%). Uses `alibi`. |
+
+`alibi` pins `numpy<2`, so Anchor only works on **Python 3.12 or older** (the Docker images use 3.12).
+On Python 3.13/3.14 everything else works and Anchor shows as "not available". To enable it locally:
+
+```bash
+brew install python@3.12        # or: uv python install 3.12
+cd backend
+rm -rf .venv && python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Models trained before this version must be retrained to get LIME/Anchor.
 
 ## Docker Deployment
 

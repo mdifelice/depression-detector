@@ -90,7 +90,11 @@ export default function TrainingProgress() {
                   <th>{t("metrics.accuracy")}</th>
                   <th>{t("metrics.precision")}</th>
                   <th>{t("metrics.recall")}</th>
+                  <th>{t("metrics.specificity")}</th>
                   <th>{t("metrics.auc")}</th>
+                  <th>{t("metrics.ks")}</th>
+                  <th>{t("metrics.lift")}</th>
+                  <th>{t("metrics.trainTime")}</th>
                   <th>{t("common.status")}</th>
                 </tr>
               </thead>
@@ -108,7 +112,11 @@ export default function TrainingProgress() {
                     <td>{r.accuracy != null ? r.accuracy.toFixed(4) : "-"}</td>
                     <td>{r.precision != null ? r.precision.toFixed(4) : "-"}</td>
                     <td>{r.recall != null ? r.recall.toFixed(4) : "-"}</td>
+                    <td>{r.specificity != null ? r.specificity.toFixed(4) : "-"}</td>
                     <td>{r.auc != null ? r.auc.toFixed(4) : "-"}</td>
+                    <td>{r.ks != null ? r.ks.toFixed(4) : "-"}</td>
+                    <td>{r.lift_at_10 != null ? r.lift_at_10.toFixed(2) : "-"}</td>
+                    <td>{r.train_time != null ? r.train_time.toFixed(2) : "-"}</td>
                     <td>
                       {r.error ? (
                         <span className="error-text">{r.error}</span>

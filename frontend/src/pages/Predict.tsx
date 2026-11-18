@@ -1,7 +1,22 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import axios from "axios";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { modelsApi, type ModelSchemaField, type PredictionResponse } from "../api";
+import {
+  modelsApi,
+  type ModelSchemaField,
+  type PredictionExplanation,
+  type PredictionResponse,
+} from "../api";
+import InstanceExplanation from "../components/InstanceExplanation";
+
+function errorDetail(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err)) {
+    const detail = err.response?.data?.detail;
+    return typeof detail === "string" ? detail : err.message;
+  }
+  return err instanceof Error ? err.message : fallback;
+}
 
 export default function Predict() {
   const { id } = useParams<{ id: string }>();
@@ -13,6 +28,10 @@ export default function Predict() {
   const [loading, setLoading] = useState(true);
   const [predicting, setPredicting] = useState(false);
   const [prediction, setPrediction] = useState<PredictionResponse | null>(null);
+  const [explanation, setExplanation] = useState<PredictionExplanation | null>(null);
+  const [explaining, setExplaining] = useState(false);
+  const [explainError, setExplainError] = useState("");
+  const explainRequest = useRef(0);
   const [error, setError] = useState("");
   const [browseOpen, setBrowseOpen] = useState(false);
   const [browseRows, setBrowseRows] = useState<Record<string, string | number>[]>([]);
@@ -35,6 +54,15 @@ export default function Predict() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  // Inputs changed: drop the previous result and ignore any explanation still loading.
+  const resetResult = () => {
+    explainRequest.current++;
+    setPrediction(null);
+    setExplanation(null);
+    setExplaining(false);
+    setExplainError("");
+  };
+
   const applyRow = (record: Record<string, string | number>) => {
     setValues((prev) => {
       const next = { ...prev };
@@ -43,7 +71,7 @@ export default function Predict() {
       }
       return next;
     });
-    setPrediction(null);
+    resetResult();
   };
 
   const handleRandom = async () => {
@@ -76,7 +104,26 @@ export default function Predict() {
 
   const handleChange = (name: string, value: string) => {
     setValues((prev) => ({ ...prev, [name]: value }));
-    setPrediction(null);
+    resetResult();
+  };
+
+  // LIME and Anchor take a few seconds, so they load after the prediction is shown.
+  const loadExplanation = async (submitted: Record<string, string>) => {
+    if (!id) return;
+    const request = ++explainRequest.current;
+    setExplaining(true);
+    setExplanation(null);
+    setExplainError("");
+    try {
+      const res = await modelsApi.explainPrediction(id, submitted);
+      if (request === explainRequest.current) setExplanation(res.data);
+    } catch (err: unknown) {
+      if (request === explainRequest.current) {
+        setExplainError(errorDetail(err, t("predict.explainFail")));
+      }
+    } finally {
+      if (request === explainRequest.current) setExplaining(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -84,11 +131,13 @@ export default function Predict() {
     if (!id) return;
     setPredicting(true);
     setError("");
+    resetResult();
     try {
       const res = await modelsApi.predict(id, values);
       setPrediction(res.data);
+      if (res.data.explain_methods?.length) loadExplanation(values);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t("predict.fail"));
+      setError(errorDetail(err, t("predict.fail")));
     } finally {
       setPredicting(false);
     }
@@ -216,6 +265,14 @@ export default function Predict() {
               )}
             </div>
           </section>
+        )}
+
+        {prediction && (explaining || explanation || explainError) && (
+          <InstanceExplanation
+            explanation={explanation}
+            loading={explaining}
+            error={explainError}
+          />
         )}
       </main>
 
